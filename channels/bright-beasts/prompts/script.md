@@ -29,16 +29,16 @@ suggestive but unsettled, say so.
 
 Structure each short as exactly **three beats**:
 
-1. **Setup (5–10s)** — name the species (and the individual animal if there
+1. **Hook (5–10s)** — name the species (and the individual animal if there
    is one) and tease the cognitive feat. End on a beat that *demands* the
    next line.
-2. **Finding (18–28s)** — the specific experiment or observation. Who
+2. **Origin (18–28s)** — the specific experiment or observation. Who
    studied it, when, where, what the animal actually did, and what
    alternative explanations the design ruled out. Concrete: the wire, the
    bucket, the mirror, the cache, the jar lid. Anchor in a real lab or
    habitat (Pepperberg's Brandeis lab, the Oxford behavioural ecology lab,
    the Bronx Zoo elephant enclosure, the Coral Sea reef).
-3. **Implication (5–10s)** — what this tells us about minds in general.
+3. **Payoff (5–10s)** — what this tells us about minds in general.
    Avoid overclaiming. The honest version is usually: "the line we drew
    here was drawn in the wrong place" or "this capacity is older / more
    widespread than we thought".
@@ -55,19 +55,19 @@ Return **only** a single JSON object, no prose, no markdown fences. Schema:
   "tagline": "<6–10 word tease that fits under the title>",
   "beats": [
     {
-      "label": "setup",
+      "label": "hook",
       "narration": "<spoken text, 5–10s at normal pace>",
       "on_screen": "<2–6 word caption (legacy/back-compat — keep it punchy)>",
       "image_idxs": [<indices into image_prompts, 1–2 entries>]
     },
     {
-      "label": "finding",
+      "label": "origin",
       "narration": "<spoken text, 18–28s>",
       "on_screen": "<2–6 word caption>",
       "image_idxs": [<indices into image_prompts, 2–3 entries>]
     },
     {
-      "label": "implication",
+      "label": "payoff",
       "narration": "<spoken text, 5–10s>",
       "on_screen": "<2–6 word caption>",
       "image_idxs": [<indices into image_prompts, 1–2 entries>]
@@ -95,9 +95,9 @@ finding's specific story instead of vague animal portraiture.
 **Quantity & allocation:**
 - Emit **5–7 image prompts total** (target 6).
 - Allocate across beats:
-  - setup → 1–2 prompts
-  - finding → 2–3 prompts
-  - implication → 1–2 prompts
+  - hook → 1–2 prompts
+  - origin → 2–3 prompts
+  - payoff → 1–2 prompts
 - The union of all `image_idxs` across beats must equal {0, 1, ..., len(image_prompts)-1} exactly once — no skipped indices, no duplicates.
 
 **Style anchor (must lead every prompt with these exact words):**
@@ -166,18 +166,18 @@ favor concrete adjectives over filler.
 ## User-message template
 
 ```
-subject_name: {subject_name}
+word: {word}
 category: {category}
-species: {species}
+pronunciation: {pronunciation}
 hook: {hook}
 ```
 
 Example call (the row for `alex the african grey`):
 
 ```
-subject_name: alex the african grey
+word: alex the african grey
 category: language
-species: african grey parrot
+pronunciation: african grey parrot
 hook: Studied by Irene Pepperberg from 1977 to 2007 at Brandeis; Alex learned over 100 words and used 'none' to indicate zero — the first non-human animal documented to grasp the concept of nothingness as a number.
 ```
 

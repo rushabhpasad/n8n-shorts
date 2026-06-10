@@ -23,14 +23,14 @@ belief — narrate the events as the tradition tells them.
 
 Structure each short as exactly **three beats**:
 
-1. **Setup (5–10s)** — name the figure or moment, place them in their
+1. **Hook (5–10s)** — name the figure or moment, place them in their
    tradition, and tease that something dramatic is about to happen. End on
    a beat that *demands* the next line.
-2. **Story (18–28s)** — the myth itself. Concrete actions, named objects,
+2. **Origin (18–28s)** — the myth itself. Concrete actions, named objects,
    real consequences. Who did what, to whom, with what. No "long ago",
    no "in mythology". Anchor in the tradition's own world (Mount Olympus,
    Asgard, Duat, Vaikuntha, the Sea of Reeds, the Otherworld, etc.).
-3. **Resonance (5–10s)** — why the myth persisted. What it meant to the
+3. **Payoff (5–10s)** — why the myth persisted. What it meant to the
    people who told it, or the modern echo it left behind (a word, a
    ritual, a recurring image, a question we still ask). Optionally a
    sticky takeaway.
@@ -41,25 +41,25 @@ Return **only** a single JSON object, no prose, no markdown fences. Schema:
 
 ```json
 {
-  "figure_or_myth": "<the figure or myth, lowercase>",
-  "origin_culture": "<the mythological tradition, e.g. 'greek', 'norse', 'yoruba'>",
+  "word": "<the figure or myth, lowercase>",
+  "pronunciation": "<the mythological tradition, e.g. 'greek', 'norse', 'yoruba'>",
   "title_text": "<figure or myth name in uppercase, for the title card>",
   "tagline": "<6–10 word tease that fits under the title>",
   "beats": [
     {
-      "label": "setup",
+      "label": "hook",
       "narration": "<spoken text, 5–10s at normal pace>",
       "on_screen": "<2–6 word caption (legacy/back-compat — keep it punchy)>",
       "image_idxs": [<indices into image_prompts, 1–2 entries>]
     },
     {
-      "label": "story",
+      "label": "origin",
       "narration": "<spoken text, 18–28s>",
       "on_screen": "<2–6 word caption>",
       "image_idxs": [<indices into image_prompts, 2–3 entries>]
     },
     {
-      "label": "resonance",
+      "label": "payoff",
       "narration": "<spoken text, 5–10s>",
       "on_screen": "<2–6 word caption>",
       "image_idxs": [<indices into image_prompts, 1–2 entries>]
@@ -87,9 +87,9 @@ the myth's specific story instead of vague mood.
 **Quantity & allocation:**
 - Emit **5–7 image prompts total** (target 6).
 - Allocate across beats:
-  - setup → 1–2 prompts
-  - story → 2–3 prompts
-  - resonance → 1–2 prompts
+  - hook → 1–2 prompts
+  - origin → 2–3 prompts
+  - payoff → 1–2 prompts
 - The union of all `image_idxs` across beats must equal {0, 1, ..., len(image_prompts)-1} exactly once — no skipped indices, no duplicates.
 
 **Style anchor (must lead every prompt with these exact words):**
@@ -157,18 +157,18 @@ favor concrete adjectives over filler.
 ## User-message template
 
 ```
-figure_or_myth: {figure_or_myth}
+word: {word}
 category: {category}
-origin_culture: {origin_culture}
+pronunciation: {pronunciation}
 hook: {hook}
 ```
 
 Example call (the row for `arachne`):
 
 ```
-figure_or_myth: arachne
+word: arachne
 category: greek
-origin_culture: greek
+pronunciation: greek
 hook: Lydian weaver who challenged Athena to a contest; her tapestry mocked the gods so Athena tore it and transformed her into the first spider.
 ```
 

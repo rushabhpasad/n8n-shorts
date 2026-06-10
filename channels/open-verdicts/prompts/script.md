@@ -24,13 +24,13 @@ know?" or rhetorical questions to the viewer.
 
 Structure each short as exactly **three beats**:
 
-1. **Setup (5–10s)** — name the case, the exact date or year range, the
+1. **Hook (5–10s)** — name the case, the exact date or year range, the
    location, and a one-line hook tease. End on a beat that points to the
    evidence.
-2. **Evidence (18–28s)** — the concrete facts the record contains. What was
+2. **Origin (18–28s)** — the concrete facts the record contains. What was
    found, what witnesses said, what investigators concluded. Specific names,
    dates, places, objects. Anchor everything. Never editorialize.
-3. **The Gap (5–10s)** — what is still unexplained. State the open verdict
+3. **Payoff (5–10s)** — what is still unexplained. State the open verdict
    if one was returned. Frame the unknown as *unresolved*, not *paranormal*.
    Land why the case still sits open in memory.
 
@@ -40,25 +40,25 @@ Return **only** a single JSON object, no prose, no markdown fences. Schema:
 
 ```json
 {
-  "case_name": "<the case, lowercase>",
-  "case_year_or_range": "<year or 'YYYY-YYYY' range as it appears in source>",
+  "word": "<the case, lowercase>",
+  "pronunciation": "<year or 'YYYY-YYYY' range as it appears in source>",
   "title_text": "<case name in uppercase, for the title card>",
   "tagline": "<6–10 word tease that fits under the title>",
   "beats": [
     {
-      "label": "setup",
+      "label": "hook",
       "narration": "<spoken text, 5–10s at normal pace>",
       "on_screen": "<2–6 word caption>",
       "image_idxs": [<indices into image_prompts, 1–2 entries>]
     },
     {
-      "label": "evidence",
+      "label": "origin",
       "narration": "<spoken text, 18–28s>",
       "on_screen": "<2–6 word caption>",
       "image_idxs": [<indices into image_prompts, 2–3 entries>]
     },
     {
-      "label": "gap",
+      "label": "payoff",
       "narration": "<spoken text, 5–10s>",
       "on_screen": "<2–6 word caption>",
       "image_idxs": [<indices into image_prompts, 1–2 entries>]
@@ -86,9 +86,9 @@ case's specific facts instead of vague mood.
 **Quantity & allocation:**
 - Emit **5–7 image prompts total** (target 6).
 - Allocate across beats:
-  - setup → 1–2 prompts
-  - evidence → 2–3 prompts
-  - gap → 1–2 prompts
+  - hook → 1–2 prompts
+  - origin → 2–3 prompts
+  - payoff → 1–2 prompts
 - The union of all `image_idxs` across beats must equal {0, 1, ..., len(image_prompts)-1} exactly once — no skipped indices, no duplicates.
 
 **Style anchor (must lead every prompt with these exact words):**
@@ -167,18 +167,18 @@ case's specific facts instead of vague mood.
 ## User-message template
 
 ```
-case_name: {case_name}
+word: {word}
 category: {category}
-case_year_or_range: {case_year_or_range}
+pronunciation: {pronunciation}
 hook: {hook}
 ```
 
 Example call (the row for `mary celeste`):
 
 ```
-case_name: mary celeste
+word: mary celeste
 category: ghost_ship
-case_year_or_range: 1872
+pronunciation: 1872
 hook: American merchant brig found drifting in the Atlantic in November 1872 with sails set and a half-eaten meal in the galley but no crew aboard; ten people, including a baby, never seen again.
 ```
 

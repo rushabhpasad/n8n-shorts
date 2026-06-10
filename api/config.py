@@ -22,7 +22,8 @@ class Settings(BaseSettings):
     # Ollama (script LLM)
     ollama_url: str = Field(default="http://localhost:11434")
     ollama_model: str = Field(default="gemma4:latest")
-    ollama_timeout_s: float = Field(default=120.0)
+    # gemma4 on M1 Max takes ~90-180s for a full Script JSON; 300s leaves margin.
+    ollama_timeout_s: float = Field(default=300.0)
 
     # mflux (image gen)
     # Picked z-image-turbo (Tongyi/Alibaba, open) after:

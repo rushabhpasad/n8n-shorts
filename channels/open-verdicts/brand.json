@@ -1,0 +1,27 @@
+{
+  "channel": "open-verdicts",
+  "brand_concept": "Open Verdicts reads as a somber forensic archive — an evidence room from a century that never gave back its answers. The visual identity leans into implied absence and unfinished business: a single object, lit like a still life, that carries the weight of a case the record never closed.",
+  "color_palette": "aged parchment, oxblood ink, gaslight amber, cold slate",
+  "icon_prompts": [
+    {
+      "name": "v1-unstamped-dossier",
+      "concept": "A closed case file tied with twine, the seal half-broken, sitting alone on a coroner's bench.",
+      "prompt": "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, a single weathered manila case dossier bound with frayed twine, a broken wax seal hanging loose, resting dead-center on a dark wooden coroner's bench, faint gaslight glow from off-frame, no human figures, single subject filling frame, minimal blurred background, centered square composition, cinematic composition, atmospheric, no text, no captions, no watermarks"
+    },
+    {
+      "name": "v2-empty-chair",
+      "concept": "A single empty wooden chair in a dim interrogation-style room, an overcoat draped over its back — the witness who never came back.",
+      "prompt": "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, a single empty antique wooden chair centered in a dim wood-paneled room, a heavy dark overcoat draped over its back, faint amber lamp glow from one side casting a long shadow on the floorboards, no human figures, single subject filling frame, shallow depth of field, centered square composition, cinematic composition, atmospheric, no text, no captions, no watermarks"
+    },
+    {
+      "name": "v3-lantern-fog",
+      "concept": "A brass ship's lantern hanging alone in dense harbor fog — the last light from a vessel that never made port.",
+      "prompt": "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, a single tarnished brass ship's lantern hanging from a frayed rope, glowing faintly amber in dense grey harbor fog, suspended dead-center against a near-monochrome misty void, no human figures, no visible ship, bold central focal subject, minimal background, centered square composition, cinematic composition, atmospheric, no text, no captions, no watermarks"
+    },
+    {
+      "name": "v4-pocket-watch",
+      "concept": "A stopped silver pocket watch lying on a yellowed evidence cloth, the chain trailing off-frame — time arrested at the moment of the unsolved.",
+      "prompt": "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, a tarnished silver pocket watch lying open and stopped, face-up on a yellowed linen evidence cloth, the chain trailing into shadow, viewed from directly above, warm low lamp light pooling around it, no human figures, single subject filling frame, minimal dark background, centered square composition, cinematic composition, atmospheric, no text, no captions, no watermarks"
+    }
+  ]
+}
