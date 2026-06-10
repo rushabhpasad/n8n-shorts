@@ -129,13 +129,17 @@ etymology-shorts/
 │   └── pyproject.toml           # uv-managed deps
 ├── prompts/
 │   ├── script.md                # Ollama system prompt — DEFINES output quality
-│   └── image.md                 # image-prompt conventions
+│   ├── image.md                 # image-prompt conventions
+│   └── words.md                 # prompt for generating new candidate words
+│                                # (usable with any cloud LLM)
 ├── sql/schema.sql               # words queue + runs audit trail
 ├── words.csv                    # 100 curated etymology words
 ├── n8n/workflow.json            # importable n8n workflow (Manual + Schedule triggers)
 ├── scripts/
 │   ├── yt_init.py               # one-time YouTube OAuth bootstrap (needs a browser)
 │   ├── dev-up.sh                # convenience wrapper: uv sync + uvicorn with reload
+│   ├── gen_words.py             # propose new word candidates via LLM
+│                                # + verify each against Wiktionary
 │   ├── gen_icons.py             # generate channel-icon candidates via Z-Image-Turbo
 │   └── gen_banner.py            # generate channel banner (2048×1152)
 ├── assets/
@@ -158,6 +162,32 @@ etymology-shorts/
 | Typography | **Inter Bold** | SIL OFL 1.1 | Bundled at `assets/fonts/` |
 | Video | **ffmpeg + Pillow overlays** | LGPL + MIT-style | Homebrew ffmpeg lacks libfreetype, so all text is rendered to PNG via Pillow and overlaid |
 | Upload | **YouTube Data API v3** | Google API ToS | OAuth Desktop client, refresh token persisted |
+
+## Adding more words
+
+The seed `words.csv` ships with 100 curated entries. To extend the queue:
+
+```bash
+# Generate 20 new candidates via the local LLM, verify each against the
+# English Wiktionary, print as CSV rows for review:
+uv run scripts/gen_words.py --count 20
+
+# Once you've eyeballed the rows above, commit them to words.csv:
+uv run scripts/gen_words.py --count 20 --append
+
+# Focus on a specific category:
+uv run scripts/gen_words.py --count 10 --category greek_myth --append
+
+# Or use any cloud LLM instead: paste prompts/words.md into the chat, supply
+# your exclusion list, and validate output the same way (`scripts/gen_words.py
+# --skip-wiktionary` skips the verification step if you've already verified
+# elsewhere).
+```
+
+The script automatically dedups against `words.csv` and assigns the next
+available `id`. Wiktionary verification rejects words that don't have a page
+or lack an Etymology section — biased toward false negatives (rare-but-real
+words may slip), which is the safer failure mode for a public channel.
 
 ## State & storage
 
