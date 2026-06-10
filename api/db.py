@@ -61,7 +61,12 @@ def _migrate_to_v1(c: sqlite3.Connection) -> None:
       words(channel + id PK, channel + word UNIQUE, ...)
       runs(id PK, channel + word_id FK→words(channel,id), ...)
       view dropped — query in Python
+
+    FKs are disabled during the rebuild because `DROP TABLE words` does an
+    implicit DELETE that the runs→words FK (default NO ACTION = RESTRICT)
+    would block.
     """
+    c.execute("PRAGMA foreign_keys = OFF")
     if not _column_exists(c, "words", "channel"):
         log.info("migrating words → multi-channel (channel column + compound PK)")
         c.executescript(
@@ -139,6 +144,8 @@ def _migrate_to_v1(c: sqlite3.Connection) -> None:
 
     # The old next_word VIEW (paramless) doesn't fit multi-channel; drop it.
     c.execute("DROP VIEW IF EXISTS next_word")
+
+    c.execute("PRAGMA foreign_keys = ON")
 
 
 _MIGRATIONS = {1: _migrate_to_v1}
