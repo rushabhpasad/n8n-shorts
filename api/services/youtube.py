@@ -55,7 +55,7 @@ def _credentials() -> Credentials:
 def upload_short(
     script: Script,
     video_path: Path,
-    privacy: str = "private",
+    privacy: str = "public",
 ) -> dict:
     """Resumable upload. Returns {video_id, url, privacy}."""
     if not video_path.exists():

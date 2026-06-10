@@ -150,7 +150,7 @@ class AssembleResponse(BaseModel):
 
 class UploadRequest(BaseModel):
     word_id: int
-    privacy: Literal["private", "unlisted", "public"] = "private"
+    privacy: Literal["private", "unlisted", "public"] = "public"
 
 
 class UploadResponse(BaseModel):
