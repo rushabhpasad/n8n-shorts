@@ -1,0 +1,44 @@
+# Generated artifacts
+output/
+state.db
+state.db-*
+_samples/
+
+# Python
+api/.venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.python-version
+
+# Secrets — NEVER commit
+.env
+.env.*
+secrets/
+api/.env
+*.token.json
+*_token.json
+*_oauth.json
+
+# Large model caches (re-downloadable artifacts, not source)
+assets/piper/
+assets/bgm/
+
+# Channel-specific brand outputs (each fork generates its own)
+assets/brand/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.bak
+
+# Logs
+*.log
+/tmp/
+
+# Node (in case n8n or future tooling lands here)
+node_modules/
