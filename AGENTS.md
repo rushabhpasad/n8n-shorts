@@ -160,6 +160,8 @@ These are the high-impact files. Read carefully, change with intent.
 | `api/services/video.py` | ffmpeg filter graph. Easy to break the whole video silently — `-shortest` masks bugs. | Always extract frames at `t=1s`, `t=mid-beat`, `t=outro_start+0.5s` after a change. |
 | `api/config.py` | All runtime knobs. Pydantic-settings; env-overridable. Helpers `channel_data_dir()`, `youtube_oauth_path(channel)`, `youtube_token_path(channel)` resolve channel-scoped paths. | Health check (`/health`) shows current values + the channels list. |
 | `n8n/generate.py` | Per-channel workflow generator. Reads every `channels/<slug>/channel.json` and writes `n8n/workflows/<slug>.json`. | Run, then re-import each workflow into n8n. |
+| `channels/<slug>/brand.json` | Channel icon prompts. Edit the `brand_concept` / `color_palette` / `icon_prompts` to redesign the channel's visual mark. | `uv run --project api scripts/gen_brand.py --channel <slug> --only <prompt-name>` and view the PNG. |
+| `scripts/gen_brand.py` | Renders icon candidates from a channel's `brand.json`. Already calls `unlink()` before `save_image` so the §2.1 mflux landmine is dodged here. | Run with `--only` for a single candidate. |
 
 ## 4. Conventions
 
@@ -171,7 +173,7 @@ These are the high-impact files. Read carefully, change with intent.
 - **Separation of concerns**: `services/` has all I/O + external calls. `main.py`
   is route handlers + light orchestration only. `db.py` is the only place that
   touches SQLite directly.
-- **File naming for outputs**: `word_{id:04d}_{i}.png` for images, `word_{id:04d}.{wav|mp4|json}` for the rest. Don't change without updating `/assemble` and `/upload`'s path expectations.
+- **File naming for outputs**: `word_{id:04d}_{i}.png` for images, `word_{id:04d}.{wav|mp4|json}` for the rest. Don't change without updating `/assemble` and `/upload`'s path expectations. Brand icons: `assets/brand/<channel>/icon_<name>.png` where `<name>` matches `channels/<channel>/brand.json` `icon_prompts[].name`.
 - **Logging**: use the existing `log = logging.getLogger("shorts-api.<service>")` pattern. Don't introduce structured loggers unless you also wire log aggregation.
 
 ## 5. How to test changes
@@ -203,6 +205,9 @@ output/<channel>/audio/word_{id:04d}.wav
 output/<channel>/images/word_{id:04d}_{i}.png
 output/<channel>/videos/word_{id:04d}.mp4
 
+channels/<channel>/brand.json          # icon prompts (the-mythscape, open-verdicts, bright-beasts)
+assets/brand/<channel>/icon_<name>.png # 1024×1024 candidates from gen_brand.py
+
 secrets/youtube_oauth.<channel>.json
 secrets/youtube_token.<channel>.json
 ```
@@ -215,7 +220,7 @@ The pipeline is feature-complete for daily Shorts on four channels (Wordstrata, 
 
 1. **Affiliate footer** in YouTube description (per-channel — script LLM template change in each `channels/<slug>/prompts/script.md`)
 2. **Pinned comment auto-post** in `/upload` (needs scope expansion to `youtube.force-ssl`, per-channel OAuth re-consent)
-3. **Per-channel brand assets** — currently the painterly style and Inter Bold typography are shared across all four channels. Eventually channels may want their own outro card, watermark, and title font.
+3. **Per-channel brand assets — partial**: `brand.json` + `gen_brand.py` exist for the three new channels (icon candidates only). Still pending: per-channel outro card / watermark, banner generator (2048×1152), and brand assets for `wordstrata` (currently uses a hand-designed icon).
 4. **Whisper-based forced alignment** to make sentence captions tightly word-sync'd — currently captions are word-count-proportional within each beat, which trails the audio by ~200–400 ms.
 5. **Long-form companion pipeline** — 10–15 min mini-docs sharing the same words queue and audio/image infra, but with different script and video assembly.
 6. **`mflux` overwrite-fix** in `services/image.py` (one-liner — see §2.1).

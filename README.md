@@ -87,6 +87,13 @@ docker run -d --name n8n -p 5678:5678 \
 python3 n8n/generate.py
 # Then in n8n UI (http://localhost:5678): Workflows → Import from File →
 # select each n8n/workflows/<slug>.json
+
+# 9. (Optional) Generate channel-icon candidates for each new channel
+for slug in the-mythscape open-verdicts bright-beasts; do
+  uv run --project api scripts/gen_brand.py --channel $slug
+done
+# Then pick a favorite from assets/brand/<slug>/ and upload via YouTube
+# Studio → Customisation → Branding.
 ```
 
 ## YouTube upload setup (one-time)
@@ -169,8 +176,11 @@ etymology-shorts/
 │   │   ├── prompts/{script,image,words}.md
 │   │   └── words.csv             # the channel's curated queue
 │   ├── the-mythscape/
+│   │   └── brand.json            # brand concept + 4 icon prompts (mflux)
 │   ├── open-verdicts/
+│   │   └── brand.json
 │   └── bright-beasts/
+│       └── brand.json
 ├── sql/schema.sql                # channel-scoped queue + audit
 ├── n8n/
 │   ├── generate.py               # generates one workflow.json per channel
@@ -178,11 +188,13 @@ etymology-shorts/
 ├── scripts/
 │   ├── yt_init.py                # OAuth bootstrap — pass --channel <slug>
 │   ├── gen_words.py              # propose new candidates — pass --channel <slug>
+│   ├── gen_brand.py              # channel-icon generator (mflux) — pass --channel <slug>
 │   └── migrate_to_multichannel.sh  # one-time install migration
 ├── assets/
 │   ├── fonts/Inter-Bold.ttf      # SIL OFL — display + caption font (shared)
 │   ├── piper/                    # Piper voice models (downloaded on first /voice call)
 │   └── brand/                    # icon, banner, watermark outputs (per-channel)
+│       └── <slug>/icon_*.png     # 4 candidates from gen_brand.py
 └── secrets/                      # .gitignored — never committed
     ├── youtube_oauth.<slug>.json # OAuth Desktop Client per channel
     └── youtube_token.<slug>.json # refresh token (auto-refreshed by service)
@@ -228,6 +240,26 @@ channel: `word` / `figure_or_myth` / `case_name` / `subject_name`), dedups
 against existing rows, and assigns the next available `id`. Wiktionary
 verification is enabled only for Wordstrata (the only channel where subjects
 are dictionary words).
+
+## Channel branding
+
+Each channel has a `channels/<slug>/brand.json` defining its visual identity —
+a brand concept, color palette, and 4 distinct icon prompts. Currently shipped
+for `the-mythscape`, `open-verdicts`, and `bright-beasts`; `wordstrata` uses a
+manually-designed icon. The icon prompts share the painterly oil-on-canvas
+style anchor with the video shorts so the channel feels cohesive.
+
+Regenerate icon candidates (1024×1024 PNGs via Z-Image-Turbo / mflux):
+
+```bash
+uv run --project api scripts/gen_brand.py --channel <slug>
+# Flags: --only <name>, --steps, --seed, --width, --height, --quantize 8
+```
+
+Outputs land at `assets/brand/<slug>/icon_<name>.png` — 4 candidates per run.
+Each render takes ~30 s on Apple Silicon; ~2 min total per channel. Iterate by
+editing `channels/<slug>/brand.json` and re-running. Pick the favorite and
+upload via YouTube Studio → Customisation → Branding → Picture.
 
 ## State & storage
 
