@@ -2,7 +2,7 @@
 
 The script LLM emits 3 image prompts per short — `shorts-api` passes each to
 `mflux generate` and renders at 768×1344 (9:16) in 4 steps. ~15–25s per image
-on M1 Max, ~60s total for 3 images.
+on Apple Silicon, ~60s total for 3 images.
 
 ## Why these constraints
 

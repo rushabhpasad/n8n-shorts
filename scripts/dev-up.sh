@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start shorts-api in dev (auto-reload) on stl.
+# Start shorts-api in dev (auto-reload).
 # Assumes uv is on PATH (brew install).
 
 set -euo pipefail

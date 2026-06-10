@@ -2,7 +2,7 @@
 
 Reads OAuth credentials from settings.youtube_token_path. The token is created
 by the one-time bootstrap script `scripts/yt_init.py` (run on a machine with a
-browser); it's then copied/synced to stl and auto-refreshed on use.
+browser), then auto-refreshed on every use here.
 
 Shorts detection at YouTube is purely heuristic — there is no "Shorts" API.
 A video is treated as a Short if it's vertical, ≤ 60s, and the title/description
@@ -35,7 +35,7 @@ def _credentials() -> Credentials:
         raise RuntimeError(
             f"YouTube token not found at {settings.youtube_token_path}. "
             f"Run `python scripts/yt_init.py` once to authorize, then sync the "
-            f"resulting token.json to stl."
+            f"resulting token.json to {settings.youtube_token_path}."
         )
     creds = Credentials.from_authorized_user_file(
         str(settings.youtube_token_path), SCOPES

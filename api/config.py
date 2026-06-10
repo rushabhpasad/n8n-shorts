@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     # mflux (image gen)
     # Picked z-image-turbo (Tongyi/Alibaba, open) after:
     #   - schnell, dev, flux2-klein: all gated by Black Forest Labs
-    #   - qwen-image: open but ~40s/step on M1 Max → 50 min per 3-image video, not workable
+    #   - qwen-image: open but ~40s/step on Apple Silicon → 50 min per 3-image video, not workable
     # z-image-turbo is distilled (4-8 steps), much smaller, and designed for speed.
     mflux_model: str = Field(default="z-image-turbo")
     mflux_quantize: int = Field(default=8)

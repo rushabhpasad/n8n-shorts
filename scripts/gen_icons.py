@@ -3,10 +3,9 @@
 Standalone. Loads its own ZImage model instance (independent of the running
 shorts-api). Outputs 4 1024×1024 candidates into ~/etymology-shorts/assets/brand/.
 
-Usage on stl:
-  eval "$(/opt/homebrew/bin/brew shellenv)"
-  cd ~/etymology-shorts/api
-  uv run python ~/etymology-shorts/scripts/gen_icons.py
+Usage:
+  cd <repo>/api
+  uv run python ../scripts/gen_icons.py
 """
 
 from __future__ import annotations
@@ -95,8 +94,7 @@ def main() -> None:
         ImageUtil.save_image(image=image, path=str(out_path))
         print(f"  → {out_path.name}  ({time.perf_counter() - t1:.1f}s)")
 
-    print("Done. Pull back with:")
-    print(f"  rsync -avh stl:{OUT_DIR}/ ./_samples/brand/")
+    print(f"Done. PNGs written to {OUT_DIR}/")
 
 
 if __name__ == "__main__":

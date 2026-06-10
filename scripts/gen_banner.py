@@ -8,10 +8,9 @@ Steps:
    safe-zone so it's visible on every device.
 5. Save as banner_2048x1152.png.
 
-Run on stl after gen_icons.py:
-  eval "$(/opt/homebrew/bin/brew shellenv)"
-  cd ~/etymology-shorts/api
-  uv run python ~/etymology-shorts/scripts/gen_banner.py
+Usage (after gen_icons.py):
+  cd <repo>/api
+  uv run python ../scripts/gen_banner.py
 """
 
 from __future__ import annotations

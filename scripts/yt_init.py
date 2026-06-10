@@ -8,9 +8,9 @@
 # ///
 """One-time YouTube OAuth bootstrap.
 
-Run this once on a machine WITH a browser (your laptop/desktop, not stl over
-SSH). It launches a local server, opens a browser to Google's consent screen,
-and writes out a token file that contains a refresh token.
+Run this once on a machine WITH a browser. It launches a local server, opens
+a browser tab to Google's consent screen, and writes out a token file that
+contains a refresh token.
 
 The refresh token lives effectively forever (Google rotates only on user
 revoke or 6 months of inactivity), so once written, the FastAPI service can
@@ -21,15 +21,13 @@ INPUT:
     OAuth 2.0 Desktop Client ID JSON downloaded from Google Cloud Console.
 
 OUTPUT:
-  ~/temp/etymology-shorts/secrets/youtube_token.json
-    Long-lived credentials. SYNC THIS TO stl AFTER WRITING:
-      rsync -avh secrets/youtube_token.json stl:etymology-shorts/secrets/
+  <repo>/secrets/youtube_token.json
+    Long-lived credentials. The FastAPI service reads this on every /upload
+    and auto-refreshes the access token as needed.
 
 USAGE:
-  cd /Users/rpasad/temp/etymology-shorts
-  ./scripts/yt_init.py
-  # or
-  uv run --no-project scripts/yt_init.py
+  cd <repo>
+  uv run scripts/yt_init.py
 
 The script is uv-script-shebanged — it pulls its own deps into an ephemeral
 venv. No project setup needed locally.
@@ -137,14 +135,14 @@ def main() -> int:
             print(f"Channel verification failed: {e}")
     print()
     print("Next steps:")
-    print(f"  1. rsync -avh {TOKEN_PATH} stl:etymology-shorts/secrets/")
-    print(f"  2. rsync -avh {CLIENT_SECRETS} stl:etymology-shorts/secrets/")
-    print("     (shorts-api on stl needs both to refresh the token later)")
-    print("  3. Test upload:")
+    print(f"  1. Verify {TOKEN_PATH} exists alongside {CLIENT_SECRETS}.")
+    print("     The shorts-api process reads both to refresh the token on demand.")
+    print("  2. Test an upload (word_id=1 must have been through /script,")
+    print("     /voice, /image and /assemble first):")
     print(
-        '     ssh stl \'curl -sS -X POST -H "content-type: application/json" '
-        '-d "{\\"word_id\\":1,\\"privacy\\":\\"private\\"}" '
-        'http://localhost:7860/upload\''
+        '     curl -sS -X POST -H "content-type: application/json" '
+        '-d \'{"word_id":1,"privacy":"private"}\' '
+        'http://localhost:7860/upload'
     )
     return 0
 

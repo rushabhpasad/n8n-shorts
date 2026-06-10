@@ -1,10 +1,8 @@
-# etymology-shorts (Wordstrata)
+# etymology-shorts
 
 A fully-local YouTube Shorts factory. One curated etymology a day → 50-second
 painterly video → uploaded private (or public) to YouTube. No third-party AI
-APIs: everything runs on a single Mac Studio.
-
-Channel: **[@wordstrata](https://youtube.com/@wordstrata)** — *Every word has buried layers.*
+APIs — everything runs on a single Apple Silicon Mac.
 
 ## What it does
 
@@ -24,53 +22,93 @@ Wall-clock per video: ~25 min (image generation dominates). Daily cron via n8n.
 ## Architecture
 
 ```
-stl (Mac Studio M1 Max, 32 GB) — everything runs here
-┌────────────────────────────────────────────────────────────────────────────┐
-│ ┌─ OrbStack container ─┐    ┌─ host (Metal/MLX) ─────────────────────────┐ │
-│ │  n8n :5678           │───▶│  Ollama :11434       gemma4:8B  (script)   │ │
-│ │                      │───▶│  shorts-api :7860    FastAPI (uvicorn)     │ │
-│ │  Daily cron 9am IST  │    │   ├─ POST /script    → Ollama              │ │
-│ │  GET /state/next     │    │   ├─ POST /voice     → Piper TTS           │ │
-│ │  POST /script        │    │   ├─ POST /image     → Z-Image-Turbo (mlx) │ │
-│ │  POST /voice         │    │   ├─ POST /assemble  → ffmpeg + Pillow     │ │
-│ │  POST /image         │    │   └─ POST /upload    → YouTube Data API    │ │
-│ │  POST /assemble      │    │                                            │ │
-│ │  POST /upload        │    │  Storage: SQLite (state.db) + filesystem   │ │
-│ └──────────────────────┘    └────────────────────────────────────────────┘ │
-└────────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│ Host (Apple Silicon Mac)                                                 │
+│                                                                          │
+│  ┌─ Docker / OrbStack ─┐    ┌─ host processes ─────────────────────────┐ │
+│  │  n8n :5678          │───▶│  Ollama :11434       gemma4:8B (script)  │ │
+│  │                     │───▶│  shorts-api :7860    FastAPI (uvicorn)   │ │
+│  │  Daily cron         │    │   ├─ POST /script    → Ollama            │ │
+│  │  GET /state/next    │    │   ├─ POST /voice     → Piper TTS         │ │
+│  │  POST /script       │    │   ├─ POST /image     → Z-Image-Turbo     │ │
+│  │  POST /voice        │    │   ├─ POST /assemble  → ffmpeg + Pillow   │ │
+│  │  POST /image        │    │   └─ POST /upload    → YouTube Data API  │ │
+│  │  POST /assemble     │    │                                          │ │
+│  │  POST /upload       │    │  Storage: SQLite (state.db) + filesystem │ │
+│  └─────────────────────┘    └──────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
 
-n8n reaches the host via `http://host.docker.internal:7860`.
+n8n in Docker reaches the host via `http://host.docker.internal:7860`.
 
 ## Quick start
 
 ```bash
-# 1. From your dev machine (M3 or similar): edit code here
-cd /Users/rpasad/temp/etymology-shorts
+# 1. Clone and enter
+git clone https://github.com/rushabhpasad/n8n-etymology-shorts.git etymology-shorts
+cd etymology-shorts
 
-# 2. Sync to stl (where everything actually runs)
-rsync -avh --delete --exclude '.DS_Store' --exclude '.venv/' \
-  --exclude '__pycache__/' --exclude '*.pyc' --exclude 'output/' \
-  --exclude 'state.db' --exclude '.env' --exclude 'secrets/' \
-  ./ stl:etymology-shorts/
+# 2. Install host tools (one-time)
+brew install python@3.12 uv ffmpeg jq
 
-# 3. On stl, start the API
-ssh stl
-cd ~/etymology-shorts/api
-uv sync
-uv run uvicorn main:app --host 0.0.0.0 --port 7860
+# 3. Install Python deps (creates api/.venv/)
+cd api && uv sync && cd ..
 
-# 4. Hit /health and /state/init from anywhere on the tailnet
-curl http://stl:7860/health
-curl -X POST http://stl:7860/state/init      # one-time: load words.csv into SQLite
+# 4. Make sure Ollama is running with the script model
+brew install ollama       # or use the .app installer
+ollama serve &            # background; defaults to localhost:11434
+ollama pull gemma4        # ~5GB; one-time
 
-# 5. Generate one full short for word_id=N
+# 5. Start the FastAPI service
+cd api && uv run uvicorn main:app --host 0.0.0.0 --port 7860 &
+cd ..
+
+# 6. Load the 100-word seed queue into SQLite
+curl -X POST http://localhost:7860/state/init
+
+# 7. (Optional) Run n8n in a container for the daily cron
+docker run -d --name n8n -p 5678:5678 \
+  -v ~/.n8n:/home/node/.n8n \
+  n8nio/n8n:latest
+
+# Then in n8n UI (http://localhost:5678): Workflows → Import from File →
+# select n8n/workflow.json
+```
+
+## YouTube upload setup (one-time)
+
+```bash
+# A. Create an OAuth 2.0 Desktop Client in Google Cloud Console.
+#    Enable "YouTube Data API v3". Add your Google account as a Test User.
+#    Download the credentials JSON to:
+#      secrets/youtube_oauth.json
+
+# B. Run the OAuth bootstrap — opens a browser, captures the refresh token:
+mkdir -p secrets
+uv run scripts/yt_init.py
+
+# C. That writes secrets/youtube_token.json. The service auto-refreshes the
+#    token on every upload — no further manual auth needed.
+```
+
+## Trigger a video
+
+```bash
+# Manually for a specific word_id (1..100):
 curl -X POST -H 'content-type: application/json' \
-  -d '{"word_id":1,"privacy":"private"}' \
-  http://stl:7860/upload    # this chains: assemble (which needs script/voice/image first)
+  -d '{"word_id":1}' http://localhost:7860/script
+curl -X POST -H 'content-type: application/json' \
+  -d '{"word_id":1}' http://localhost:7860/voice
+curl -X POST -H 'content-type: application/json' \
+  -d '{"word_id":1}' http://localhost:7860/image      # ~20 min
+curl -X POST -H 'content-type: application/json' \
+  -d '{"word_id":1}' http://localhost:7860/assemble
+curl -X POST -H 'content-type: application/json' \
+  -d '{"word_id":1,"privacy":"private"}' http://localhost:7860/upload
 
-# Or trigger the whole chain via the n8n workflow:
-#   n8n UI → Wordstrata Daily → Execute Workflow
+# Or: trigger the full chain via the n8n workflow's "Execute Workflow" button.
+# Once you've verified the manual run, enable the workflow's Schedule Trigger
+# in the n8n UI for daily 9 AM IST automation (cron is configurable).
 ```
 
 ## Project structure
@@ -84,7 +122,7 @@ etymology-shorts/
 │   ├── models.py                # Pydantic schemas (Script, Beat, etc.)
 │   ├── services/
 │   │   ├── script.py            # Ollama call, JSON-validated output
-│   │   ├── voice.py             # Piper TTS → WAV
+│   │   ├── voice.py             # Piper TTS → WAV (random voice per call)
 │   │   ├── image.py             # Z-Image-Turbo via mflux (Apple Silicon)
 │   │   ├── video.py             # ffmpeg + Pillow assembly, outro card render
 │   │   └── youtube.py           # YouTube Data API v3 upload
@@ -96,14 +134,15 @@ etymology-shorts/
 ├── words.csv                    # 100 curated etymology words
 ├── n8n/workflow.json            # importable n8n workflow (Manual + Schedule triggers)
 ├── scripts/
-│   ├── yt_init.py               # one-time YouTube OAuth bootstrap (run on machine with browser)
+│   ├── yt_init.py               # one-time YouTube OAuth bootstrap (needs a browser)
+│   ├── dev-up.sh                # convenience wrapper: uv sync + uvicorn with reload
 │   ├── gen_icons.py             # generate channel-icon candidates via Z-Image-Turbo
 │   └── gen_banner.py            # generate channel banner (2048×1152)
 ├── assets/
 │   ├── fonts/Inter-Bold.ttf     # SIL OFL — display + caption font
 │   ├── piper/                   # Piper voice models (downloaded on first /voice call)
 │   └── brand/                   # icon, banner, watermark outputs
-└── secrets/                     # .gitignored
+└── secrets/                     # .gitignored — never committed
     ├── youtube_oauth.json       # OAuth Desktop Client from Google Cloud Console
     └── youtube_token.json       # refresh token (auto-refreshed by service)
 ```
@@ -112,9 +151,9 @@ etymology-shorts/
 
 | Layer | Choice | License | Notes |
 |---|---|---|---|
-| Orchestration | **n8n** | Sustainable Use License | Self-hosted in OrbStack |
+| Orchestration | **n8n** | Sustainable Use License | Self-hosted in Docker |
 | LLM (script gen) | **Ollama `gemma4:latest`** (8B Q4_K_M) | Gemma TOU | Commercial use OK |
-| Image gen | **Z-Image-Turbo** (Tongyi-MAI via mflux) | Apache-2.0-ish | M1 Max ~30 s/step × 8 steps × 5 images = ~20 min/video |
+| Image gen | **Z-Image-Turbo** (Tongyi-MAI via mflux) | Apache-2.0-ish | Apple Silicon: ~30 s/step × 8 steps × 5 images ≈ 20 min/video |
 | TTS | **Piper** — 4-voice random pool: norman, john, bryce, joe | Public domain / CC0 | YouTube-monetization safe; voice shuffled per video for variety |
 | Typography | **Inter Bold** | SIL OFL 1.1 | Bundled at `assets/fonts/` |
 | Video | **ffmpeg + Pillow overlays** | LGPL + MIT-style | Homebrew ffmpeg lacks libfreetype, so all text is rendered to PNG via Pillow and overlaid |
@@ -127,21 +166,10 @@ etymology-shorts/
   truth.
 - **`~/etymology-shorts/output/`** — `scripts/`, `audio/`, `images/`,
   `videos/`. One file per word.
-- **`~/.cache/huggingface/hub/`** — model weights (~15 GB Z-Image-Turbo, ~110 MB Piper voice).
+- **`~/.cache/huggingface/hub/`** — model weights (~15 GB Z-Image-Turbo, ~60 MB per Piper voice × 4).
 
-## Status
-
-| Stage | Status |
-|---|---|
-| Curated 100-word seed list | ✅ |
-| LLM script generation | ✅ (gemma4) |
-| Image generation | ✅ (Z-Image-Turbo) |
-| Voice synthesis | ✅ (Piper Norman) |
-| Video assembly | ✅ (1080×1920, 30 fps, branded outro) |
-| YouTube upload (private) | ✅ |
-| n8n workflow end-to-end | ✅ (verified on word_id=2) |
-| OAuth bootstrap | ✅ (`scripts/yt_init.py`) |
-| Channel branding (icon/banner/watermark) | ✅ (in `_samples/brand/`) |
+These paths are configurable in `api/config.py` via `pydantic-settings`
+environment variables.
 
 ## License
 
@@ -159,12 +187,3 @@ for commercial-use compatibility, i.e. YouTube monetization is allowed):
 YouTube also requires disclosing AI-altered/synthetic content via the
 "Altered or synthetic content" toggle in upload settings; do this for every
 upload.
-
-## Operational notes
-
-- stl is configured `pmset sleep 0` and Screen Sharing is active, so it never
-  sleeps. n8n is in OrbStack and runs 24×7.
-- shorts-api is started manually as a `nohup uv run uvicorn ...` process. If
-  it crashes (rare — never observed in production), `ssh stl 'cd ~/etymology-shorts/api && nohup uv run uvicorn main:app --host 0.0.0.0 --port 7860 > /tmp/shorts-api.log 2>&1 &'` brings it back.
-- Tailscale provides the only network path to stl from the dev machine.
-  Transient drops are normal and don't affect on-stl processes.
