@@ -1,12 +1,13 @@
-#!/usr/bin/env -S uv run --script
-# /// script
-# requires-python = ">=3.10"
-# dependencies = []
-# ///
+#!/usr/bin/env python3
 """Generate square channel-icon candidates from channels/<slug>/brand.json.
 
-Reuses the Z-Image-Turbo model that shorts-api keeps resident via /image/warmup,
-so this script runs *inside* the api venv via uv. Output:
+Run from inside the api venv (it depends on mflux + Pillow). NO uv-script
+inline-deps header — that would make uv spin up an empty ephemeral venv and
+miss the api/.venv mflux install.
+
+  uv run --project api scripts/gen_brand.py --channel the-mythscape
+
+Output:
 
   assets/brand/<channel>/icon_<name>.png   (1024×1024 square)
 
