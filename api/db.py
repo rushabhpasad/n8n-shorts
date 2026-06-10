@@ -145,19 +145,36 @@ _MIGRATIONS = {1: _migrate_to_v1}
 
 
 def init_schema() -> None:
-    """Apply schema.sql for a fresh DB, then run any pending migrations."""
+    """Bring the DB to TARGET_USER_VERSION.
+
+    Order matters: schema.sql declares the *current* schema with the *current*
+    indexes. On an existing pre-v1 DB those indexes reference columns that
+    don't exist yet, so we must run migrations FIRST when the tables already
+    exist. On a fresh DB we just run schema.sql and stamp user_version.
+    """
     sql = SCHEMA_PATH.read_text()
     with conn() as c:
-        c.executescript(sql)
-        v = _current_user_version(c)
-        while v < TARGET_USER_VERSION:
-            v += 1
-            migrate = _MIGRATIONS.get(v)
-            if migrate is None:
-                raise RuntimeError(f"no migration registered for v{v}")
-            migrate(c)
-            c.execute(f"PRAGMA user_version = {v}")
-            log.info("migrated db to user_version=%d", v)
+        has_words = c.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='words'"
+        ).fetchone() is not None
+
+        if has_words:
+            # Existing DB — migrate first, then re-run schema.sql so any new
+            # IF NOT EXISTS clauses (added in later schema versions) take effect.
+            v = _current_user_version(c)
+            while v < TARGET_USER_VERSION:
+                v += 1
+                migrate = _MIGRATIONS.get(v)
+                if migrate is None:
+                    raise RuntimeError(f"no migration registered for v{v}")
+                migrate(c)
+                c.execute(f"PRAGMA user_version = {v}")
+                log.info("migrated db to user_version=%d", v)
+            c.executescript(sql)
+        else:
+            # Fresh DB — schema.sql creates tables already at TARGET schema.
+            c.executescript(sql)
+            c.execute(f"PRAGMA user_version = {TARGET_USER_VERSION}")
     log.info("schema applied (%s)", SCHEMA_PATH)
 
 
