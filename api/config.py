@@ -77,17 +77,25 @@ class Settings(BaseSettings):
     # lingers for a moment before the SUBSCRIBE card appears.
     outro_pause_s: float = Field(default=0.25)
 
-    # Storage
+    # Storage. Per-channel output lives at `<data_dir>/<channel>/{scripts,audio,images,videos}`.
     data_dir: Path = Field(default=Path.home() / "etymology-shorts" / "output")
     db_path: Path = Field(default=Path.home() / "etymology-shorts" / "state.db")
 
-    # YouTube
-    youtube_credentials_path: Path = Field(
-        default=Path.home() / "etymology-shorts" / "secrets" / "youtube_oauth.json",
+    # YouTube — secrets are per-channel:
+    #   secrets/youtube_oauth.<channel>.json
+    #   secrets/youtube_token.<channel>.json
+    secrets_dir: Path = Field(
+        default=Path.home() / "etymology-shorts" / "secrets",
     )
-    youtube_token_path: Path = Field(
-        default=Path.home() / "etymology-shorts" / "secrets" / "youtube_token.json",
-    )
+
+    def channel_data_dir(self, channel: str) -> Path:
+        return self.data_dir / channel
+
+    def youtube_oauth_path(self, channel: str) -> Path:
+        return self.secrets_dir / f"youtube_oauth.{channel}.json"
+
+    def youtube_token_path(self, channel: str) -> Path:
+        return self.secrets_dir / f"youtube_token.{channel}.json"
 
 
 settings = Settings()

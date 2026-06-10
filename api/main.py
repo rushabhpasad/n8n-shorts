@@ -1,6 +1,8 @@
-"""shorts-api — FastAPI service driving the etymology-shorts pipeline.
+"""shorts-api — FastAPI service driving the multi-channel shorts pipeline.
 
-Phase 3a: /state, /script.
+All endpoints are scoped by channel, e.g. POST /wordstrata/script,
+POST /the-mythscape/upload. The channel comes from the URL path; request
+bodies carry only the word_id.
 """
 
 from __future__ import annotations
@@ -16,8 +18,9 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from config import settings
+import channels as channel_registry
 import db
+from config import settings
 from models import (
     AssembleRequest,
     AssembleResponse,
@@ -47,9 +50,38 @@ log = logging.getLogger("shorts-api")
 
 app = FastAPI(
     title="shorts-api",
-    version="0.1.0",
-    description="Local pipeline for etymology Shorts.",
+    version="0.2.0",
+    description="Local multi-channel pipeline for YouTube Shorts.",
 )
+
+
+# ─── helpers ────────────────────────────────────────────────────────────────
+
+def _resolve_channel(channel: str) -> channel_registry.ChannelConfig:
+    try:
+        return channel_registry.load(channel)
+    except (FileNotFoundError, ValueError) as e:
+        raise HTTPException(404, f"unknown channel '{channel}': {e}")
+
+
+def _channel_dir(channel: str, sub: str) -> Path:
+    return settings.channel_data_dir(channel) / sub
+
+
+def _script_path(channel: str, word_id: int) -> Path:
+    return _channel_dir(channel, "scripts") / f"word_{word_id:04d}.json"
+
+
+def _audio_path(channel: str, word_id: int) -> Path:
+    return _channel_dir(channel, "audio") / f"word_{word_id:04d}.wav"
+
+
+def _image_path(channel: str, word_id: int, idx: int) -> Path:
+    return _channel_dir(channel, "images") / f"word_{word_id:04d}_{idx}.png"
+
+
+def _video_path(channel: str, word_id: int) -> Path:
+    return _channel_dir(channel, "videos") / f"word_{word_id:04d}.mp4"
 
 
 # ─── Health ─────────────────────────────────────────────────────────────────
@@ -63,6 +95,7 @@ class HealthResponse(BaseModel):
     ollama_model: str
     data_dir: str
     db_path: str
+    channels: list[str]
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -76,41 +109,66 @@ async def health() -> HealthResponse:
         ollama_model=settings.ollama_model,
         data_dir=str(settings.data_dir),
         db_path=str(settings.db_path),
+        channels=channel_registry.list_slugs(),
     )
 
 
-# ─── State ──────────────────────────────────────────────────────────────────
+# ─── Channels (registry) ────────────────────────────────────────────────────
+
+class ChannelInfo(BaseModel):
+    slug: str
+    name: str
+    handle: str | None
+    tagline: str | None
+    topic: str
+
+
+@app.get("/channels", response_model=list[ChannelInfo])
+async def list_channels() -> list[ChannelInfo]:
+    return [
+        ChannelInfo(slug=c.slug, name=c.name, handle=c.handle,
+                    tagline=c.tagline, topic=c.topic)
+        for c in channel_registry.all_configs()
+    ]
+
+
+# ─── State (per-channel) ────────────────────────────────────────────────────
 
 class StateInitResponse(BaseModel):
+    channel: str
     schema_applied: bool
     words_loaded: int
     total_words: int
 
 
-@app.post("/state/init", response_model=StateInitResponse)
-async def state_init() -> StateInitResponse:
+@app.post("/{channel}/state/init", response_model=StateInitResponse)
+async def state_init(channel: str) -> StateInitResponse:
+    _resolve_channel(channel)
     db.init_schema()
-    loaded = db.load_words_if_empty()
+    loaded = db.load_words_if_empty(channel)
     with db.conn() as c:
-        (total,) = c.execute("SELECT COUNT(*) FROM words").fetchone()
+        (total,) = c.execute(
+            "SELECT COUNT(*) FROM words WHERE channel = ?", (channel,)
+        ).fetchone()
     return StateInitResponse(
+        channel=channel,
         schema_applied=True,
         words_loaded=loaded,
         total_words=total,
     )
 
 
-@app.get("/state/next", response_model=WordRow | None)
-async def state_next() -> WordRow | None:
-    row = db.next_pending_word()
+@app.get("/{channel}/state/next", response_model=WordRow | None)
+async def state_next(channel: str) -> WordRow | None:
+    _resolve_channel(channel)
+    row = db.next_pending_word(channel)
     if not row:
         return None
-    # next_word view doesn't carry status; fetch full row
-    full = db.get_word(row["id"])
-    return WordRow.model_validate(full)
+    return WordRow.model_validate(row)
 
 
 class StateSummary(BaseModel):
+    channel: str
     total: int
     pending: int
     processing: int
@@ -119,14 +177,17 @@ class StateSummary(BaseModel):
     skipped: int
 
 
-@app.get("/state/summary", response_model=StateSummary)
-async def state_summary() -> StateSummary:
+@app.get("/{channel}/state/summary", response_model=StateSummary)
+async def state_summary(channel: str) -> StateSummary:
+    _resolve_channel(channel)
     with db.conn() as c:
         rows = c.execute(
-            "SELECT status, COUNT(*) AS n FROM words GROUP BY status"
+            "SELECT status, COUNT(*) AS n FROM words WHERE channel = ? GROUP BY status",
+            (channel,),
         ).fetchall()
     counts = {r["status"]: r["n"] for r in rows}
     return StateSummary(
+        channel=channel,
         total=sum(counts.values()),
         pending=counts.get("pending", 0),
         processing=counts.get("processing", 0),
@@ -138,83 +199,69 @@ async def state_summary() -> StateSummary:
 
 # ─── Script ─────────────────────────────────────────────────────────────────
 
-@app.post("/script", response_model=ScriptResponse)
-async def script(req: ScriptRequest) -> ScriptResponse:
-    # Pick the word
+@app.post("/{channel}/script", response_model=ScriptResponse)
+async def script(channel: str, req: ScriptRequest) -> ScriptResponse:
+    _resolve_channel(channel)
     if req.word_id is not None:
-        word_dict = db.get_word(req.word_id)
+        word_dict = db.get_word(channel, req.word_id)
         if not word_dict:
-            raise HTTPException(404, f"word_id {req.word_id} not found")
+            raise HTTPException(404, f"word_id {req.word_id} not found in {channel}")
     else:
-        word_dict = db.next_pending_word()
+        word_dict = db.next_pending_word(channel)
         if not word_dict:
-            raise HTTPException(404, "no pending words in queue")
-        word_dict = db.get_word(word_dict["id"])
-        if not word_dict:
-            raise HTTPException(500, "queue returned phantom id")
+            raise HTTPException(404, f"no pending words in queue for {channel}")
 
     word = WordRow.model_validate(word_dict)
 
     t0 = time.perf_counter()
-    script: Script = await generate_script(word)
+    script: Script = await generate_script(channel, word)
     duration_ms = int((time.perf_counter() - t0) * 1000)
 
-    # Persist script JSON to disk
-    out_dir: Path = settings.data_dir / "scripts"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    script_path = out_dir / f"word_{word.id:04d}.json"
-    script_path.write_text(
+    out_path = _script_path(channel, word.id)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(
         json.dumps(script.model_dump(), indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
 
     log.info(
-        "script for word=%s id=%d generated in %d ms (model=%s)",
-        word.word,
-        word.id,
-        duration_ms,
-        settings.ollama_model,
+        "script channel=%s word=%s id=%d generated in %d ms (model=%s)",
+        channel, word.word, word.id, duration_ms, settings.ollama_model,
     )
 
     return ScriptResponse(
-        word=word,
-        script=script,
-        script_path=str(script_path),
-        duration_ms=duration_ms,
-        model=settings.ollama_model,
+        word=word, script=script, script_path=str(out_path),
+        duration_ms=duration_ms, model=settings.ollama_model,
     )
 
 
 # ─── Voice ──────────────────────────────────────────────────────────────────
 
-@app.post("/voice", response_model=VoiceResponse)
-async def voice(req: VoiceRequest) -> VoiceResponse:
-    word_dict = db.get_word(req.word_id)
-    if not word_dict:
-        raise HTTPException(404, f"word_id {req.word_id} not found")
+@app.post("/{channel}/voice", response_model=VoiceResponse)
+async def voice(channel: str, req: VoiceRequest) -> VoiceResponse:
+    _resolve_channel(channel)
+    if not db.get_word(channel, req.word_id):
+        raise HTTPException(404, f"word_id {req.word_id} not found in {channel}")
 
-    # Load the script from disk (must have run /script first)
-    script_path: Path = settings.data_dir / "scripts" / f"word_{req.word_id:04d}.json"
+    script_path = _script_path(channel, req.word_id)
     if not script_path.exists():
         raise HTTPException(
             409,
             f"script not generated yet for word_id={req.word_id} "
-            f"(expected at {script_path})",
+            f"in channel={channel} (expected at {script_path})",
         )
     script = Script.model_validate(json.loads(script_path.read_text()))
 
     chosen_voice = voice_svc.pick_voice()
     await voice_svc.ensure_voice_downloaded(chosen_voice)
 
-    audio_path: Path = settings.data_dir / "audio" / f"word_{req.word_id:04d}.wav"
+    audio_path = _audio_path(channel, req.word_id)
     result = voice_svc.synthesize_to_wav(script, audio_path, chosen_voice)
 
     log.info(
-        "voice for word_id=%d → %s (%.2fs, %d bytes)",
-        req.word_id,
-        result["audio_path"],
-        result["duration_s"],
-        result["size_bytes"],
+        "voice channel=%s word_id=%d → %s (%.2fs, %d bytes)",
+        channel, req.word_id, result["audio_path"],
+        result["duration_s"], result["size_bytes"],
     )
 
     return VoiceResponse(word_id=req.word_id, **result)
@@ -230,8 +277,8 @@ class ImageWarmupResponse(BaseModel):
 
 @app.post("/image/warmup", response_model=ImageWarmupResponse)
 async def image_warmup() -> ImageWarmupResponse:
-    """Force-load Flux into memory. First call downloads ~12GB and may take
-    5–20 min depending on bandwidth. Subsequent calls return immediately."""
+    """Force-load Flux/Z-Image into memory. Channel-agnostic — the model is
+    shared across channels."""
     t0 = time.perf_counter()
     result = await asyncio.to_thread(image_svc.warmup)
     duration_ms = int((time.perf_counter() - t0) * 1000)
@@ -243,21 +290,20 @@ async def image_warmup() -> ImageWarmupResponse:
     )
 
 
-@app.post("/image", response_model=ImageResponse)
-async def image(req: ImageRequest) -> ImageResponse:
-    word_dict = db.get_word(req.word_id)
-    if not word_dict:
-        raise HTTPException(404, f"word_id {req.word_id} not found")
+@app.post("/{channel}/image", response_model=ImageResponse)
+async def image(channel: str, req: ImageRequest) -> ImageResponse:
+    _resolve_channel(channel)
+    if not db.get_word(channel, req.word_id):
+        raise HTTPException(404, f"word_id {req.word_id} not found in {channel}")
 
-    script_path: Path = settings.data_dir / "scripts" / f"word_{req.word_id:04d}.json"
+    script_path = _script_path(channel, req.word_id)
     if not script_path.exists():
         raise HTTPException(
             409,
-            f"script not generated yet for word_id={req.word_id} "
-            f"(expected at {script_path})",
+            f"script not generated yet for word_id={req.word_id} in channel={channel}",
         )
     script = Script.model_validate(json.loads(script_path.read_text()))
-    out_dir: Path = settings.data_dir / "images"
+    out_dir = _channel_dir(channel, "images")
 
     t0 = time.perf_counter()
     results = await asyncio.to_thread(
@@ -266,10 +312,8 @@ async def image(req: ImageRequest) -> ImageResponse:
     duration_ms = int((time.perf_counter() - t0) * 1000)
 
     log.info(
-        "image gen for word_id=%d: %d images in %d ms",
-        req.word_id,
-        len(results),
-        duration_ms,
+        "image gen channel=%s word_id=%d: %d images in %d ms",
+        channel, req.word_id, len(results), duration_ms,
     )
 
     return ImageResponse(
@@ -280,47 +324,41 @@ async def image(req: ImageRequest) -> ImageResponse:
     )
 
 
-# ─── Assemble (ffmpeg → MP4) ────────────────────────────────────────────────
+# ─── Assemble ───────────────────────────────────────────────────────────────
 
-@app.post("/assemble", response_model=AssembleResponse)
-async def assemble(req: AssembleRequest) -> AssembleResponse:
-    word_dict = db.get_word(req.word_id)
-    if not word_dict:
-        raise HTTPException(404, f"word_id {req.word_id} not found")
+@app.post("/{channel}/assemble", response_model=AssembleResponse)
+async def assemble(channel: str, req: AssembleRequest) -> AssembleResponse:
+    _resolve_channel(channel)
+    if not db.get_word(channel, req.word_id):
+        raise HTTPException(404, f"word_id {req.word_id} not found in {channel}")
 
-    script_path: Path = settings.data_dir / "scripts" / f"word_{req.word_id:04d}.json"
+    script_path = _script_path(channel, req.word_id)
     if not script_path.exists():
-        raise HTTPException(409, f"script not found for word_id={req.word_id}")
+        raise HTTPException(409, f"script not found for word_id={req.word_id} in {channel}")
     script = Script.model_validate(json.loads(script_path.read_text()))
 
-    audio_path = settings.data_dir / "audio" / f"word_{req.word_id:04d}.wav"
+    audio_path = _audio_path(channel, req.word_id)
     if not audio_path.exists():
-        raise HTTPException(409, f"audio not found for word_id={req.word_id}")
+        raise HTTPException(409, f"audio not found for word_id={req.word_id} in {channel}")
 
     n_images = len(script.image_prompts)
-    image_paths = [
-        settings.data_dir / "images" / f"word_{req.word_id:04d}_{i}.png"
-        for i in range(n_images)
-    ]
+    image_paths = [_image_path(channel, req.word_id, i) for i in range(n_images)]
     missing = [p for p in image_paths if not p.exists()]
     if missing:
-        raise HTTPException(
-            409, f"missing images: {[str(p) for p in missing]}"
-        )
+        raise HTTPException(409, f"missing images: {[str(p) for p in missing]}")
 
-    output_path = settings.data_dir / "videos" / f"word_{req.word_id:04d}.mp4"
+    out_path = _video_path(channel, req.word_id)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
 
     t0 = time.perf_counter()
     result = await asyncio.to_thread(
-        video_svc.assemble_video, script, image_paths, audio_path, output_path
+        video_svc.assemble_video, script, image_paths, audio_path, out_path
     )
     elapsed_ms = int((time.perf_counter() - t0) * 1000)
 
     log.info(
-        "assembled video for word_id=%d → %s (%d ms)",
-        req.word_id,
-        result["video_path"],
-        elapsed_ms,
+        "assembled video channel=%s word_id=%d → %s (%d ms)",
+        channel, req.word_id, result["video_path"], elapsed_ms,
     )
 
     return AssembleResponse(word_id=req.word_id, elapsed_ms=elapsed_ms, **result)
@@ -328,37 +366,33 @@ async def assemble(req: AssembleRequest) -> AssembleResponse:
 
 # ─── Upload ─────────────────────────────────────────────────────────────────
 
-@app.post("/upload", response_model=UploadResponse)
-async def upload(req: UploadRequest) -> UploadResponse:
-    word_dict = db.get_word(req.word_id)
-    if not word_dict:
-        raise HTTPException(404, f"word_id {req.word_id} not found")
+@app.post("/{channel}/upload", response_model=UploadResponse)
+async def upload(channel: str, req: UploadRequest) -> UploadResponse:
+    cfg = _resolve_channel(channel)
+    if not db.get_word(channel, req.word_id):
+        raise HTTPException(404, f"word_id {req.word_id} not found in {channel}")
 
-    script_path: Path = settings.data_dir / "scripts" / f"word_{req.word_id:04d}.json"
+    script_path = _script_path(channel, req.word_id)
     if not script_path.exists():
-        raise HTTPException(409, f"script not found for word_id={req.word_id}")
+        raise HTTPException(409, f"script not found for word_id={req.word_id} in {channel}")
     script = Script.model_validate(json.loads(script_path.read_text()))
 
-    video_path = settings.data_dir / "videos" / f"word_{req.word_id:04d}.mp4"
+    video_path = _video_path(channel, req.word_id)
     if not video_path.exists():
-        raise HTTPException(409, f"video not assembled for word_id={req.word_id}")
+        raise HTTPException(409, f"video not assembled for word_id={req.word_id} in {channel}")
 
     t0 = time.perf_counter()
     result = await asyncio.to_thread(
-        youtube_svc.upload_short, script, video_path, req.privacy
+        youtube_svc.upload_short, channel, script, video_path, req.privacy
     )
     elapsed_ms = int((time.perf_counter() - t0) * 1000)
 
-    # Audit trail: persist a run row capturing every input + the YouTube IDs.
+    # Audit trail
     n_images = len(script.image_prompts)
-    audit_image_paths = [
-        str(settings.data_dir / "images" / f"word_{req.word_id:04d}_{i}.png")
-        for i in range(n_images)
-    ]
-    audit_audio = settings.data_dir / "audio" / f"word_{req.word_id:04d}.wav"
-    # Read which voice was actually used (written by /voice as a sidecar).
+    audit_image_paths = [str(_image_path(channel, req.word_id, i)) for i in range(n_images)]
+    audit_audio = _audio_path(channel, req.word_id)
     voice_used = settings.piper_voices[0] if settings.piper_voices else "unknown"
-    audio_meta = settings.data_dir / "audio" / f"word_{req.word_id:04d}.meta.json"
+    audio_meta = audit_audio.with_suffix(".meta.json")
     if audio_meta.exists():
         try:
             voice_used = json.loads(audio_meta.read_text()).get("voice", voice_used)
@@ -366,6 +400,7 @@ async def upload(req: UploadRequest) -> UploadResponse:
             pass
 
     run_id = db.record_completed_run(
+        channel,
         req.word_id,
         script_path=str(script_path),
         image_paths=audit_image_paths,
@@ -379,13 +414,11 @@ async def upload(req: UploadRequest) -> UploadResponse:
     )
 
     log.info(
-        "uploaded word_id=%d run_id=%d → %s (%d ms, privacy=%s)",
-        req.word_id, run_id,
-        result["url"],
-        elapsed_ms,
-        result["privacy"],
+        "uploaded channel=%s word_id=%d run_id=%d → %s (%d ms, privacy=%s)",
+        channel, req.word_id, run_id, result["url"], elapsed_ms, result["privacy"],
     )
-    db.set_word_status(req.word_id, "done")
+    db.set_word_status(channel, req.word_id, "done")
+    _ = cfg  # quiet linter
     return UploadResponse(word_id=req.word_id, elapsed_ms=elapsed_ms, **result)
 
 
@@ -394,17 +427,16 @@ async def upload(req: UploadRequest) -> UploadResponse:
 @app.on_event("startup")
 async def _startup() -> None:
     log.info(
-        "shorts-api up | ollama=%s model=%s data_dir=%s db=%s",
-        settings.ollama_url,
-        settings.ollama_model,
-        settings.data_dir,
-        settings.db_path,
+        "shorts-api up | ollama=%s model=%s data_dir=%s db=%s channels=%s",
+        settings.ollama_url, settings.ollama_model,
+        settings.data_dir, settings.db_path,
+        channel_registry.list_slugs(),
     )
-    # Best-effort: ensure schema + words loaded on startup
     try:
         db.init_schema()
-        loaded = db.load_words_if_empty()
-        if loaded:
-            log.info("startup loaded %d words into state", loaded)
+        for slug in channel_registry.list_slugs():
+            loaded = db.load_words_if_empty(slug)
+            if loaded:
+                log.info("startup loaded %d words for channel=%s", loaded, slug)
     except Exception as e:
         log.error("startup state init failed: %s", e)

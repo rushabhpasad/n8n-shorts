@@ -153,11 +153,13 @@ These are the high-impact files. Read carefully, change with intent.
 
 | File | What it controls | Test after editing |
 |---|---|---|
-| `prompts/script.md` | Output quality of the LLM. Image prompts, narration tone, sentence-level captions. | Regen one script (`curl -X POST /script` with a single word) and *read it* before any image gen. |
-| `api/models.py` (`Script`) | Schema the LLM must satisfy. Pydantic v2 validator enforces `image_idxs` permutation across beats. | Round-trip a JSON through `Script.model_validate(...)`. |
+| `channels/<slug>/prompts/script.md` | Output quality of the LLM for that channel. Image prompts, narration tone, sentence-level captions. Each channel has its own. | Regen one script (`curl -X POST /<slug>/script` with a `word_id`) and *read it* before any image gen. |
+| `channels/<slug>/channel.json` | Per-channel metadata — slug, display name, YouTube handle, default categories. Loaded at runtime by `api/channels.py`. | `curl /channels` to confirm the registry sees it. |
+| `api/channels.py` | Channel registry (file-based). `load(slug)` resolves a `ChannelConfig`; `list_slugs()` discovers all channels at runtime. | Lookup an unknown slug — should 404 with a clear message. |
+| `api/models.py` (`Script`) | Schema the LLM must satisfy. Pydantic v2 validator enforces `image_idxs` permutation across beats. Shared across channels. | Round-trip a JSON through `Script.model_validate(...)`. |
 | `api/services/video.py` | ffmpeg filter graph. Easy to break the whole video silently — `-shortest` masks bugs. | Always extract frames at `t=1s`, `t=mid-beat`, `t=outro_start+0.5s` after a change. |
-| `api/config.py` | All runtime knobs. Pydantic-settings; env-overridable. | Health check shows current values. |
-| `n8n/workflow.json` | Workflow contract. Re-import in n8n UI after edits. | Click "Execute Workflow" — happy-path covers all nodes. |
+| `api/config.py` | All runtime knobs. Pydantic-settings; env-overridable. Helpers `channel_data_dir()`, `youtube_oauth_path(channel)`, `youtube_token_path(channel)` resolve channel-scoped paths. | Health check (`/health`) shows current values + the channels list. |
+| `n8n/generate.py` | Per-channel workflow generator. Reads every `channels/<slug>/channel.json` and writes `n8n/workflows/<slug>.json`. | Run, then re-import each workflow into n8n. |
 
 ## 4. Conventions
 
@@ -186,21 +188,36 @@ to be high-leverage. Acceptance is empirical:
 
 ## 6. State and audit
 
-`state.db` (SQLite) has two tables:
+`state.db` (SQLite) has two tables, both **channel-scoped**:
 
-- **`words`** — the 100-row queue. `status IN ('pending','processing','done','failed','skipped')`. `/state/next` returns the lowest-priority pending row.
-- **`runs`** — one row per `/upload` event. Records: file paths, model names (`script_model`, `image_model`, `tts_voice`), YouTube `video_id` + `url`, timestamps. **This is the audit trail.** When debugging "why did Tuesday's upload look different", you query this.
+- **`words`** — the queue. Compound PK `(channel, id)` so each channel owns its own 1..N id space. `status IN ('pending','processing','done','failed','skipped')`. `GET /<channel>/state/next` returns the lowest-priority pending row for that channel.
+- **`runs`** — one row per `/upload` event. Records: channel, file paths, model names (`script_model`, `image_model`, `tts_voice`), YouTube `video_id` + `url`, timestamps. **This is the audit trail.** When debugging "why did Tuesday's Wordstrata upload look different", you query this with `WHERE channel = 'wordstrata'`.
 
-Schema in `sql/schema.sql`. `db.record_completed_run(...)` is the canonical insert.
+Schema in `sql/schema.sql`. `db.record_completed_run(channel, word_id, ...)` is the canonical insert. Schema migrations run automatically on startup, gated by `PRAGMA user_version` — bump `TARGET_USER_VERSION` in `db.py` and add a migration callable when the schema changes.
+
+### Filesystem layout
+
+```
+output/<channel>/scripts/word_{id:04d}.json
+output/<channel>/audio/word_{id:04d}.wav
+output/<channel>/images/word_{id:04d}_{i}.png
+output/<channel>/videos/word_{id:04d}.mp4
+
+secrets/youtube_oauth.<channel>.json
+secrets/youtube_token.<channel>.json
+```
+
+The `word_` prefix in filenames is purely historical — it stays the same across all channels (mythology, animals, etc.) so the existing assemble/upload path expectations keep working.
 
 ## 7. Future direction
 
-The pipeline is feature-complete for daily Shorts. Open TODOs (in priority order):
+The pipeline is feature-complete for daily Shorts on four channels (Wordstrata, The Mythscape, Open Verdicts, Bright Beasts). Open TODOs (in priority order):
 
-1. **Affiliate footer** in YouTube description (script LLM template change)
-2. **Pinned comment auto-post** in `/upload` (needs scope expansion to `youtube.force-ssl`)
-3. **Whisper-based forced alignment** to make sentence captions tightly word-sync'd — currently captions are word-count-proportional within each beat, which trails the audio by ~200–400 ms (not noticeable on most shorts but could be fixed)
-4. **Long-form companion pipeline** — 10–15 min mini-docs sharing the same words queue and audio/image infra, but with different script and video assembly
-5. **`mflux` overwrite-fix** in `services/image.py` (one-liner — see §2.1)
+1. **Affiliate footer** in YouTube description (per-channel — script LLM template change in each `channels/<slug>/prompts/script.md`)
+2. **Pinned comment auto-post** in `/upload` (needs scope expansion to `youtube.force-ssl`, per-channel OAuth re-consent)
+3. **Per-channel brand assets** — currently the painterly style and Inter Bold typography are shared across all four channels. Eventually channels may want their own outro card, watermark, and title font.
+4. **Whisper-based forced alignment** to make sentence captions tightly word-sync'd — currently captions are word-count-proportional within each beat, which trails the audio by ~200–400 ms.
+5. **Long-form companion pipeline** — 10–15 min mini-docs sharing the same words queue and audio/image infra, but with different script and video assembly.
+6. **`mflux` overwrite-fix** in `services/image.py` (one-liner — see §2.1).
 
 Don't add: feature flags, retry/backoff infra, k8s manifests, generic abstraction layers. This is a single-machine pipeline; over-architecting is the failure mode.

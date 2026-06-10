@@ -1,0 +1,12 @@
+{
+  "slug": "open-verdicts",
+  "name": "Open Verdicts",
+  "handle": "@OpenVerdicts",
+  "tagline": "Cases the record left open.",
+  "topic": "unsolved-mysteries",
+  "description_template": "Historical mysteries the record never closed. A new case every weekday.",
+  "default_categories": ["disappearance", "unexplained_death", "lost_object", "cryptic_artifact", "ghost_ship", "mass_phenomenon", "missing_explorer", "cold_case", "vanished_settlement"],
+  "ai_disclosure": true,
+  "shorts_max_duration_s": 180,
+  "content_safety": "no living subjects, no post-1960 unless artifact-only, no conspiracy framing"
+}

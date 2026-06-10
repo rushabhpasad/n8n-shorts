@@ -1,12 +1,14 @@
-"""SQLite state — schema bootstrap, words.csv loader, simple queries.
+"""SQLite state — schema bootstrap + multi-channel queries.
 
-Uses the stdlib sqlite3 module (sync) — fine for this workload because
-each pipeline step is sequential and per-word; no concurrent writers.
+Each row in `words` and `runs` carries a `channel` slug. PK on words is
+compound `(channel, id)` so each channel keeps its own 1..N id space matching
+its `words.csv` file. Stdlib sqlite3 is fine — pipeline steps are sequential.
 """
 
 from __future__ import annotations
 
 import csv
+import json
 import logging
 import sqlite3
 from collections.abc import Generator
@@ -14,11 +16,15 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from config import settings
+from channels import load as load_channel
 
 log = logging.getLogger("shorts-api.db")
 
 SCHEMA_PATH = Path(__file__).resolve().parent.parent / "sql" / "schema.sql"
-WORDS_CSV = Path(__file__).resolve().parent.parent / "words.csv"
+
+# Bump whenever schema.sql changes. apply_migrations() walks PRAGMA user_version
+# from whatever the DB currently has up to TARGET, executing each step.
+TARGET_USER_VERSION = 1
 
 
 @contextmanager
@@ -34,131 +40,240 @@ def conn() -> Generator[sqlite3.Connection, None, None]:
         c.close()
 
 
+def _current_user_version(c: sqlite3.Connection) -> int:
+    return c.execute("PRAGMA user_version").fetchone()[0]
+
+
+def _column_exists(c: sqlite3.Connection, table: str, column: str) -> bool:
+    rows = c.execute(f"PRAGMA table_info({table})").fetchall()
+    return any(r[1] == column for r in rows)
+
+
+def _migrate_to_v1(c: sqlite3.Connection) -> None:
+    """v0 → v1: add channel column + compound PK to words/runs.
+
+    v0 schema:
+      words(id PK, word UNIQUE, ...)
+      runs(id PK, word_id FK→words.id, ...)
+      VIEW next_word
+
+    v1 schema (channels/<slug>/words.csv lives here):
+      words(channel + id PK, channel + word UNIQUE, ...)
+      runs(id PK, channel + word_id FK→words(channel,id), ...)
+      view dropped — query in Python
+    """
+    if not _column_exists(c, "words", "channel"):
+        log.info("migrating words → multi-channel (channel column + compound PK)")
+        c.executescript(
+            """
+            CREATE TABLE words_new (
+                channel         TEXT    NOT NULL DEFAULT 'wordstrata',
+                id              INTEGER NOT NULL,
+                word            TEXT    NOT NULL,
+                category        TEXT    NOT NULL,
+                origin_language TEXT    NOT NULL,
+                hook            TEXT    NOT NULL,
+                status          TEXT    NOT NULL DEFAULT 'pending'
+                                   CHECK (status IN ('pending','processing','done','failed','skipped')),
+                priority        INTEGER NOT NULL DEFAULT 100,
+                created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+                updated_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+                PRIMARY KEY (channel, id),
+                UNIQUE (channel, word)
+            );
+            INSERT INTO words_new
+                (channel, id, word, category, origin_language, hook, status, priority, created_at, updated_at)
+            SELECT
+                'wordstrata', id, word, category, origin_language, hook, status, priority, created_at, updated_at
+            FROM words;
+            DROP TABLE words;
+            ALTER TABLE words_new RENAME TO words;
+            CREATE INDEX IF NOT EXISTS idx_words_status_priority
+                ON words(channel, status, priority, id);
+            """
+        )
+
+    if not _column_exists(c, "runs", "channel"):
+        log.info("migrating runs → multi-channel (channel column + compound FK)")
+        c.executescript(
+            """
+            CREATE TABLE runs_new (
+                id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+                channel            TEXT    NOT NULL DEFAULT 'wordstrata',
+                word_id            INTEGER NOT NULL,
+                started_at         TEXT    NOT NULL DEFAULT (datetime('now')),
+                finished_at        TEXT,
+                status             TEXT    NOT NULL DEFAULT 'running'
+                                      CHECK (status IN ('running','done','failed')),
+                script_path        TEXT,
+                image_paths        TEXT,
+                audio_path         TEXT,
+                video_path         TEXT,
+                script_model       TEXT,
+                image_model        TEXT,
+                tts_voice          TEXT,
+                youtube_video_id   TEXT,
+                youtube_url        TEXT,
+                error              TEXT,
+                metrics_json       TEXT,
+                FOREIGN KEY (channel, word_id) REFERENCES words(channel, id)
+            );
+            INSERT INTO runs_new
+                (id, channel, word_id, started_at, finished_at, status,
+                 script_path, image_paths, audio_path, video_path,
+                 script_model, image_model, tts_voice,
+                 youtube_video_id, youtube_url, error, metrics_json)
+            SELECT
+                id, 'wordstrata', word_id, started_at, finished_at, status,
+                script_path, image_paths, audio_path, video_path,
+                script_model, image_model, tts_voice,
+                youtube_video_id, youtube_url, error, metrics_json
+            FROM runs;
+            DROP TABLE runs;
+            ALTER TABLE runs_new RENAME TO runs;
+            CREATE INDEX IF NOT EXISTS idx_runs_channel_word
+                ON runs(channel, word_id, started_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
+            """
+        )
+
+    # The old next_word VIEW (paramless) doesn't fit multi-channel; drop it.
+    c.execute("DROP VIEW IF EXISTS next_word")
+
+
+_MIGRATIONS = {1: _migrate_to_v1}
+
+
 def init_schema() -> None:
-    """Apply schema.sql idempotently."""
+    """Apply schema.sql for a fresh DB, then run any pending migrations."""
     sql = SCHEMA_PATH.read_text()
     with conn() as c:
         c.executescript(sql)
+        v = _current_user_version(c)
+        while v < TARGET_USER_VERSION:
+            v += 1
+            migrate = _MIGRATIONS.get(v)
+            if migrate is None:
+                raise RuntimeError(f"no migration registered for v{v}")
+            migrate(c)
+            c.execute(f"PRAGMA user_version = {v}")
+            log.info("migrated db to user_version=%d", v)
     log.info("schema applied (%s)", SCHEMA_PATH)
 
 
-def load_words_if_empty() -> int:
-    """Load words.csv into `words` table only if the table is empty.
+# ─── Words queue ────────────────────────────────────────────────────────────
 
-    Returns the number of rows loaded (0 if already populated).
-    Words that already exist (by `word` UNIQUE) are skipped — re-running is safe.
+def load_words_if_empty(channel: str) -> int:
+    """Load `channels/<channel>/words.csv` into the words table.
+
+    Per-channel idempotent: if any rows for this channel already exist, no-op.
+    Words that already exist in the (channel, word) pair are skipped — so
+    re-running is safe even if the CSV has been extended.
     """
+    csv_path = load_channel(channel).words_csv_path
+    if not csv_path.exists():
+        raise FileNotFoundError(f"no words.csv for channel {channel}: {csv_path}")
+
     with conn() as c:
-        (existing,) = c.execute("SELECT COUNT(*) FROM words").fetchone()
+        (existing,) = c.execute(
+            "SELECT COUNT(*) FROM words WHERE channel = ?", (channel,)
+        ).fetchone()
         if existing > 0:
-            log.info("words already populated (%d rows) — skipping CSV load", existing)
+            log.info(
+                "channel=%s already populated (%d rows) — skipping CSV load",
+                channel, existing,
+            )
             return 0
 
         loaded = 0
-        with WORDS_CSV.open(newline="", encoding="utf-8") as f:
+        with csv_path.open(newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
+            # The CSV subject column varies by channel (word/figure_or_myth/
+            # case_name/subject_name). We coerce to the canonical 'word' column.
+            fieldnames = list(reader.fieldnames or [])
+            subject_col = _detect_subject_column(fieldnames)
+            attribute_col = _detect_attribute_column(fieldnames)
             for row in reader:
-                # Skip the placeholder skip rows
                 if row.get("priority") == "99":
                     continue
                 c.execute(
                     """
                     INSERT OR IGNORE INTO words
-                        (id, word, category, origin_language, hook, priority)
+                        (channel, id, word, category, origin_language, hook, priority)
                     VALUES
-                        (:id, :word, :category, :origin_language, :hook, :priority)
+                        (:channel, :id, :word, :category, :origin_language, :hook, :priority)
                     """,
                     {
+                        "channel": channel,
                         "id": int(row["id"]),
-                        "word": row["word"].strip(),
+                        "word": row[subject_col].strip(),
                         "category": row["category"].strip(),
-                        "origin_language": row["origin_language"].strip(),
+                        "origin_language": row[attribute_col].strip(),
                         "hook": row["hook"].strip(),
                         "priority": int(row["priority"]),
                     },
                 )
                 loaded += 1
-    log.info("loaded %d words from %s", loaded, WORDS_CSV)
+    log.info("loaded %d rows from %s for channel=%s", loaded, csv_path, channel)
     return loaded
 
 
-def next_pending_word() -> dict | None:
-    """Return the next word to process (lowest priority, then id). None if empty."""
+def _detect_subject_column(fieldnames: list[str]) -> str:
+    """Each channel's CSV uses a different name for the main subject column.
+    Pick the first match from the canonical aliases."""
+    for c in ("word", "figure_or_myth", "case_name", "subject_name", "subject"):
+        if c in fieldnames:
+            return c
+    raise ValueError(f"no subject column found in CSV; fields={fieldnames}")
+
+
+def _detect_attribute_column(fieldnames: list[str]) -> str:
+    """Each channel's CSV uses a different name for the 'attribute' column —
+    origin_language for Wordstrata, origin_culture for Mythscape, species for
+    Bright Beasts, case_year_or_range for Open Verdicts."""
+    for c in ("origin_language", "origin_culture", "case_year_or_range", "species", "attribute"):
+        if c in fieldnames:
+            return c
+    raise ValueError(f"no attribute column found in CSV; fields={fieldnames}")
+
+
+def next_pending_word(channel: str) -> dict | None:
+    """Next word for `channel`: lowest priority, ties broken by id."""
     with conn() as c:
-        row = c.execute("SELECT * FROM next_word").fetchone()
+        row = c.execute(
+            """
+            SELECT * FROM words
+            WHERE channel = ? AND status = 'pending'
+            ORDER BY priority ASC, id ASC
+            LIMIT 1
+            """,
+            (channel,),
+        ).fetchone()
         return dict(row) if row else None
 
 
-def get_word(word_id: int) -> dict | None:
+def get_word(channel: str, word_id: int) -> dict | None:
     with conn() as c:
-        row = c.execute("SELECT * FROM words WHERE id = ?", (word_id,)).fetchone()
+        row = c.execute(
+            "SELECT * FROM words WHERE channel = ? AND id = ?",
+            (channel, word_id),
+        ).fetchone()
         return dict(row) if row else None
 
 
-def set_word_status(word_id: int, status: str) -> None:
+def set_word_status(channel: str, word_id: int, status: str) -> None:
     with conn() as c:
         c.execute(
-            "UPDATE words SET status = ?, updated_at = datetime('now') WHERE id = ?",
-            (status, word_id),
+            "UPDATE words SET status = ?, updated_at = datetime('now') "
+            "WHERE channel = ? AND id = ?",
+            (status, channel, word_id),
         )
 
 
-def start_run(word_id: int, script_model: str | None = None) -> int:
-    with conn() as c:
-        cur = c.execute(
-            """
-            INSERT INTO runs (word_id, script_model, status)
-            VALUES (?, ?, 'running')
-            """,
-            (word_id, script_model),
-        )
-        return cur.lastrowid or 0
-
-
-def finish_run(
-    run_id: int,
-    status: str,
-    *,
-    script_path: str | None = None,
-    image_paths: list[str] | None = None,
-    audio_path: str | None = None,
-    video_path: str | None = None,
-    youtube_video_id: str | None = None,
-    youtube_url: str | None = None,
-    error: str | None = None,
-) -> None:
-    import json
-
-    with conn() as c:
-        c.execute(
-            """
-            UPDATE runs SET
-                status = ?,
-                finished_at = datetime('now'),
-                script_path = COALESCE(?, script_path),
-                image_paths = COALESCE(?, image_paths),
-                audio_path = COALESCE(?, audio_path),
-                video_path = COALESCE(?, video_path),
-                youtube_video_id = COALESCE(?, youtube_video_id),
-                youtube_url = COALESCE(?, youtube_url),
-                error = COALESCE(?, error)
-            WHERE id = ?
-            """,
-            (
-                status,
-                script_path,
-                json.dumps(image_paths) if image_paths is not None else None,
-                audio_path,
-                video_path,
-                youtube_video_id,
-                youtube_url,
-                error,
-                run_id,
-            ),
-        )
-
+# ─── Runs (audit trail) ─────────────────────────────────────────────────────
 
 def record_completed_run(
+    channel: str,
     word_id: int,
     *,
     script_path: str | None = None,
@@ -171,23 +286,20 @@ def record_completed_run(
     image_model: str | None = None,
     tts_voice: str | None = None,
 ) -> int:
-    """Insert a single 'done' row capturing one full pipeline → upload event.
-    Returns the new runs.id. We don't track partial runs here — /upload is
-    the terminal step, so we just record the whole event atomically."""
-    import json
-
+    """Insert a single 'done' row capturing one full pipeline → upload event."""
     with conn() as c:
         cur = c.execute(
             """
             INSERT INTO runs (
-                word_id, status, finished_at,
+                channel, word_id, status, finished_at,
                 script_path, image_paths, audio_path, video_path,
                 youtube_video_id, youtube_url,
                 script_model, image_model, tts_voice
             )
-            VALUES (?, 'done', datetime('now'), ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, 'done', datetime('now'), ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
+                channel,
                 word_id,
                 script_path,
                 json.dumps(image_paths) if image_paths is not None else None,

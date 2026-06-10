@@ -1,0 +1,11 @@
+{
+  "slug": "wordstrata",
+  "name": "Wordstrata",
+  "handle": "@wordstrata",
+  "tagline": "Every word has buried layers.",
+  "topic": "etymology",
+  "description_template": "Surprising etymologies of everyday English words. New word every weekday.",
+  "default_categories": ["greek_myth", "eponym", "placename", "arabic_loanword", "sanskrit_loanword", "persian", "native_american", "east_asian", "semantic_shift", "n_shift", "redundant_compound", "compound_hidden", "military_roman", "latin_root", "folk_etymology", "medical_coinage", "astrological", "plague_origin", "literary_coinage", "industrial"],
+  "ai_disclosure": true,
+  "shorts_max_duration_s": 180
+}

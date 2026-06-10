@@ -1,0 +1,11 @@
+{
+  "slug": "bright-beasts",
+  "name": "Bright Beasts",
+  "handle": "@BrightBeasts",
+  "tagline": "Wild minds at work.",
+  "topic": "animal-cognition",
+  "description_template": "Documented examples of non-human intelligence. New finding every weekday.",
+  "default_categories": ["tool_use", "language", "self_recognition", "memory", "planning", "deception", "play", "grief", "navigation", "cooperation", "numerical_cognition"],
+  "ai_disclosure": true,
+  "shorts_max_duration_s": 180
+}

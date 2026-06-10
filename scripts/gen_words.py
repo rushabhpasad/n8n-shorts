@@ -39,8 +39,8 @@ from pathlib import Path
 import httpx
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-WORDS_CSV = REPO_ROOT / "words.csv"
-PROMPT_FILE = REPO_ROOT / "prompts" / "words.md"
+CHANNELS_DIR = REPO_ROOT / "channels"
+DEFAULT_CHANNEL = "wordstrata"
 
 DEFAULT_OLLAMA_URL = "http://localhost:11434"
 DEFAULT_MODEL = "gemma4:latest"
@@ -48,18 +48,44 @@ DEFAULT_MODEL = "gemma4:latest"
 WIKTIONARY_BASE = "https://en.wiktionary.org/api/rest_v1/page/html"
 USER_AGENT = "etymology-shorts/1.0 (https://github.com/rushabhpasad/n8n-etymology-shorts)"
 
-CSV_FIELDS = ["id", "word", "category", "origin_language", "priority", "hook"]
+# Each channel's words.csv may have a different schema (column names for the
+# subject and the attribute). We detect the actual column names at runtime
+# from the CSV header.
+SUBJECT_ALIASES = ("word", "figure_or_myth", "case_name", "subject_name", "subject")
+ATTRIBUTE_ALIASES = ("origin_language", "origin_culture", "case_year_or_range", "species", "attribute")
 
 
-def load_existing_words(path: Path) -> tuple[set[str], int]:
-    """Returns (lowercase word set, max id seen)."""
+def channel_paths(channel: str) -> tuple[Path, Path]:
+    """Return (words_csv, prompt_md) for channel."""
+    base = CHANNELS_DIR / channel
+    return base / "words.csv", base / "prompts" / "words.md"
+
+
+def detect_csv_columns(csv_path: Path) -> tuple[list[str], str, str]:
+    """Read the CSV header, return (fieldnames, subject_col, attribute_col)."""
+    with csv_path.open(newline="", encoding="utf-8") as f:
+        reader = csv.reader(f)
+        header = next(reader, [])
+    if not header:
+        raise ValueError(f"empty CSV: {csv_path}")
+    subject = next((c for c in SUBJECT_ALIASES if c in header), None)
+    attribute = next((c for c in ATTRIBUTE_ALIASES if c in header), None)
+    if subject is None or attribute is None:
+        raise ValueError(
+            f"can't detect subject/attribute columns in {csv_path}; header={header}"
+        )
+    return header, subject, attribute
+
+
+def load_existing_subjects(path: Path, subject_col: str) -> tuple[set[str], int]:
+    """Returns (lowercase subject set, max id seen)."""
     existing: set[str] = set()
     max_id = 0
     if not path.exists():
         return existing, max_id
     with path.open(newline="", encoding="utf-8") as f:
         for row in csv.DictReader(f):
-            existing.add(row["word"].lower().strip())
+            existing.add(row[subject_col].lower().strip())
             try:
                 max_id = max(max_id, int(row["id"]))
             except (ValueError, KeyError, TypeError):
@@ -160,40 +186,60 @@ def wiktionary_has_etymology(word: str, client: httpx.Client) -> tuple[bool, str
     return False, "no-etymology-section"
 
 
-def write_row(writer: csv.DictWriter, row: dict, also_file: Path | None) -> None:
+def write_row(writer: csv.DictWriter, row: dict, fieldnames: list[str],
+              also_file: Path | None) -> None:
     writer.writerow(row)
     if also_file is not None:
         with also_file.open("a", newline="", encoding="utf-8") as f:
             csv.DictWriter(
-                f, fieldnames=CSV_FIELDS, quoting=csv.QUOTE_MINIMAL
+                f, fieldnames=fieldnames, quoting=csv.QUOTE_MINIMAL
             ).writerow(row)
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--channel", default=DEFAULT_CHANNEL,
+                    help=f"channel slug (default: {DEFAULT_CHANNEL}). Must match "
+                         f"channels/<slug>/")
     ap.add_argument("--count", type=int, default=10,
                     help="number of candidates to ask the LLM for")
     ap.add_argument("--category", default=None,
-                    help="optional category to focus on (e.g. greek_myth)")
+                    help="optional category to focus on")
     ap.add_argument("--model", default=DEFAULT_MODEL,
                     help=f"Ollama model name (default: {DEFAULT_MODEL})")
     ap.add_argument("--ollama-url", default=DEFAULT_OLLAMA_URL,
                     help=f"Ollama server URL (default: {DEFAULT_OLLAMA_URL})")
     ap.add_argument("--append", action="store_true",
-                    help="append accepted rows to words.csv "
+                    help="append accepted rows to the channel's words.csv "
                          "(default: stdout review only)")
     ap.add_argument("--skip-wiktionary", action="store_true",
-                    help="bypass Wiktionary verification (faster but riskier)")
+                    help="bypass Wiktionary verification (faster but riskier; "
+                         "Wiktionary is etymology-specific so verification is "
+                         "skipped automatically for non-etymology channels)")
     args = ap.parse_args()
 
-    existing, max_id = load_existing_words(WORDS_CSV)
+    words_csv, prompt_file = channel_paths(args.channel)
+    if not words_csv.exists():
+        print(f"ERROR: {words_csv} not found", file=sys.stderr)
+        return 1
+    if not prompt_file.exists():
+        print(f"ERROR: {prompt_file} not found", file=sys.stderr)
+        return 1
+
+    fieldnames, subject_col, attribute_col = detect_csv_columns(words_csv)
+    existing, max_id = load_existing_subjects(words_csv, subject_col)
+    # Wiktionary lookup only makes sense for etymology — Wordstrata's column
+    # is "word". For other channels skip verification by default.
+    wiktionary_makes_sense = (subject_col == "word")
+
     print(
-        f"loaded {len(existing)} existing words; max_id={max_id}",
+        f"channel={args.channel} loaded {len(existing)} existing entries; "
+        f"max_id={max_id} subject_col={subject_col} attribute_col={attribute_col}",
         file=sys.stderr,
     )
 
-    system = load_system_prompt(PROMPT_FILE)
-    examples = load_example_rows(WORDS_CSV, n=10)
+    system = load_system_prompt(prompt_file)
+    examples = load_example_rows(words_csv, n=10)
     user = build_user_message(existing, args.count, args.category, examples)
 
     print(
@@ -224,24 +270,30 @@ def main() -> int:
 
     with httpx.Client(headers=headers) as client:
         for cand in candidates:
-            word = (cand.get("word") or "").strip().lower()
-            if not word or not re.fullmatch(r"[a-z][a-z'-]*", word):
-                skipped.append((word or "<blank>", "invalid-word-shape"))
+            subject = (cand.get(subject_col) or cand.get("word") or "").strip().lower()
+            # For etymology channel, enforce single-word shape; for others allow
+            # multi-word subjects ("mary celeste", "anansi and the box of stories").
+            if subject_col == "word":
+                shape_ok = bool(re.fullmatch(r"[a-z][a-z'-]*", subject))
+            else:
+                shape_ok = bool(re.fullmatch(r"[a-z][a-z0-9'\- ]*", subject))
+            if not subject or not shape_ok:
+                skipped.append((subject or "<blank>", "invalid-subject-shape"))
                 continue
-            if word in existing:
-                skipped.append((word, "duplicate-of-queued"))
+            if subject in existing:
+                skipped.append((subject, "duplicate-of-queued"))
                 continue
-            if args.skip_wiktionary:
+            if args.skip_wiktionary or not wiktionary_makes_sense:
                 ok, reason = True, "wiktionary-bypassed"
             else:
-                ok, reason = wiktionary_has_etymology(word, client)
+                ok, reason = wiktionary_has_etymology(subject, client)
                 time.sleep(0.3)   # polite pacing
             if not ok:
-                skipped.append((word, reason))
+                skipped.append((subject, reason))
                 continue
-            cand["word"] = word
+            cand[subject_col] = subject
             accepted.append(cand)
-            existing.add(word)  # prevent dup within batch
+            existing.add(subject)  # prevent dup within batch
 
     print(
         f"accepted {len(accepted)}, skipped {len(skipped)}",
@@ -253,26 +305,29 @@ def main() -> int:
     if not accepted:
         return 0
 
-    target = WORDS_CSV if args.append else None
+    target = words_csv if args.append else None
     writer = csv.DictWriter(
-        sys.stdout, fieldnames=CSV_FIELDS, quoting=csv.QUOTE_MINIMAL
+        sys.stdout, fieldnames=fieldnames, quoting=csv.QUOTE_MINIMAL
     )
     next_id = max_id + 1
     for cand in accepted:
         row = {
             "id": next_id,
-            "word": cand["word"],
+            subject_col: cand[subject_col],
             "category": (cand.get("category") or "uncategorized").strip(),
-            "origin_language": (cand.get("origin_language") or "unknown").strip(),
+            attribute_col: (cand.get(attribute_col) or cand.get("origin_language") or "unknown").strip(),
             "priority": cand.get("priority", 20),
             "hook": (cand.get("hook") or "").strip(),
         }
-        write_row(writer, row, target)
+        # Fill any extra columns the channel CSV may carry with defaults.
+        for f in fieldnames:
+            row.setdefault(f, "")
+        write_row(writer, row, fieldnames, target)
         next_id += 1
 
     if args.append:
         print(
-            f"\n→ appended {len(accepted)} rows to {WORDS_CSV}",
+            f"\n→ appended {len(accepted)} rows to {words_csv}",
             file=sys.stderr,
         )
     else:
