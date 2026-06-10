@@ -67,6 +67,10 @@ def _migrate_to_v1(c: sqlite3.Connection) -> None:
     would block.
     """
     c.execute("PRAGMA foreign_keys = OFF")
+    # Defensive: a previous half-run may have left _new tables behind.
+    # DROP IF EXISTS so the migration is restartable.
+    c.execute("DROP TABLE IF EXISTS words_new")
+    c.execute("DROP TABLE IF EXISTS runs_new")
     if not _column_exists(c, "words", "channel"):
         log.info("migrating words → multi-channel (channel column + compound PK)")
         c.executescript(
