@@ -18,6 +18,7 @@ import wave
 from pathlib import Path
 
 import httpx
+from num2words import num2words
 from piper import PiperVoice
 
 from config import settings
@@ -47,10 +48,44 @@ _EMOJI_RE = re.compile(
 )
 _WS_RE = re.compile(r"\s+")
 
+# Year patterns we expand to spoken form so Piper doesn't read "1688" as
+# "one thousand six hundred eighty-eight". Range covers years a sane
+# etymology channel might use.
+_YEAR_RANGE_RE = re.compile(r"\b(1\d{3}|20[0-3]\d)\s*[–—\-]\s*(1\d{3}|20[0-3]\d)\b")
+_YEAR_DECADE_RE = re.compile(r"\b(1\d{2}0|20[0-3]0)s\b")
+_YEAR_RE = re.compile(r"\b(1\d{3}|20[0-3]\d)\b")
+
+
+def _spoken_decade(year_starting_decade: int) -> str:
+    """1830 → 'eighteen thirties' (pluralize the last word of the year form)."""
+    spoken = num2words(year_starting_decade, to="year")
+    # 'eighteen thirty' → 'eighteen thirties'
+    if spoken.endswith("y"):
+        return spoken[:-1] + "ies"
+    return spoken + "s"
+
+
+def _normalize_numbers_for_tts(text: str) -> str:
+    text = _YEAR_RANGE_RE.sub(
+        lambda m: f"{num2words(int(m.group(1)), to='year')} to "
+                  f"{num2words(int(m.group(2)), to='year')}",
+        text,
+    )
+    text = _YEAR_DECADE_RE.sub(
+        lambda m: _spoken_decade(int(m.group(1))),
+        text,
+    )
+    text = _YEAR_RE.sub(
+        lambda m: num2words(int(m.group(1)), to="year"),
+        text,
+    )
+    return text
+
 
 def _normalize_for_tts(text: str) -> str:
     text = _EMPH_RE.sub(lambda m: m.group(2) or m.group(4) or "", text)
     text = _EMOJI_RE.sub("", text)
+    text = _normalize_numbers_for_tts(text)
     return _WS_RE.sub(" ", text).strip()
 
 

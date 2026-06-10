@@ -21,6 +21,10 @@ dependencies = [
     # Text-to-speech (local, ONNX-backed)
     "piper-tts>=1.2.0",
 
+    # Number-to-words (Piper reads "1688" as "one thousand six hundred…";
+    # we normalize years to "sixteen eighty-eight" before TTS).
+    "num2words>=0.5.13",
+
     # YouTube upload
     "google-api-python-client>=2.150",
     "google-auth-oauthlib>=1.2",
