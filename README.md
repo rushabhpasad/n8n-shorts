@@ -143,16 +143,18 @@ etymology-shorts/
 | OAuth bootstrap | ✅ (`scripts/yt_init.py`) |
 | Channel branding (icon/banner/watermark) | ✅ (in `_samples/brand/`) |
 
-## License notes
+## License
 
-Models, fonts, and voice all chosen for commercial-use compatibility (i.e.
-YouTube monetization is allowed):
+This project is released under the **MIT License** — see [`LICENSE`](LICENSE).
 
-- gemma4 — Gemma TOU permits commercial output reuse
-- Z-Image-Turbo — Tongyi-MAI open release
-- Piper Norman voice — trained on public-domain LibriVox; **avoid** ryan/hfc/danny variants (CC-BY-NC-SA via RyanSpeech / Hi-Fi Captain)
-- Inter — SIL OFL 1.1
-- Generated narration text and assembled video are your IP
+Bundled and runtime third-party assets retain their own licenses (all chosen
+for commercial-use compatibility, i.e. YouTube monetization is allowed):
+
+- **Inter font** — SIL OFL 1.1 (bundled at `assets/fonts/`)
+- **gemma4** — Gemma TOU permits commercial output reuse
+- **Z-Image-Turbo** — Tongyi-MAI open release
+- **Piper voices (norman, john, bryce, joe)** — public domain / CC0 via their LibriVox / OHF-Voice training datasets. **Avoid** ryan/hfc/danny/kathleen variants (CC-BY-NC-SA via RyanSpeech / Hi-Fi Captain — the NC blocks YouTube monetization)
+- **Generated narration text and assembled video are your IP**
 
 YouTube also requires disclosing AI-altered/synthetic content via the
 "Altered or synthetic content" toggle in upload settings; do this for every
