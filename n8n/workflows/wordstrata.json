@@ -102,7 +102,7 @@
         "specifyBody": "json",
         "jsonBody": "={\"word_id\": {{ $('Get next word').item.json.id }}}",
         "options": {
-          "timeout": 180000
+          "timeout": 360000
         }
       }
     },

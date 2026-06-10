@@ -124,7 +124,10 @@ def make_workflow(slug: str, display_name: str, cron: str) -> dict:
                 }
             },
         },
-        http_post("do_script",    "Generate script",   900,  f"/{slug}/script",   word_id_expr, 180000),
+        # /script timeout: gemma4 takes 90-180s normally and longer under GPU
+        # contention (with mflux jobs in flight). Backend Ollama timeout is
+        # 300s — give n8n 360s headroom so it never beats the backend.
+        http_post("do_script",    "Generate script",   900,  f"/{slug}/script",   word_id_expr, 360000),
         http_post("do_voice",     "Generate voice",   1120, f"/{slug}/voice",     word_id_expr,  60000),
         http_post("do_image",     "Generate images",  1340, f"/{slug}/image",     word_id_expr, 7200000),
         http_post("do_assemble",  "Assemble video",   1560, f"/{slug}/assemble",  word_id_expr, 120000),
