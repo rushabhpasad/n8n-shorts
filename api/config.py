@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     # or equivalent). Do NOT add ryan-*, hfc_*, kathleen-*, or danny-* — those
     # trace back to NC-licensed datasets that block YouTube monetization.
     piper_voices: list[str] = Field(default=[
-        "en_US-norman-medium",  # LibriVox public domain  (15.5h training)
+        # norman removed 2026-06-11 — quality didn't pair well with shorts narration
         "en_US-john-medium",    # LibriVox public domain  (12.5h training)
         "en_US-bryce-medium",   # public domain (own recording, conversational)
         "en_US-joe-medium",     # CC0 (OHF-Voice)
