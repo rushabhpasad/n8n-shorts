@@ -2,6 +2,7 @@
   "channel": "open-verdicts",
   "brand_concept": "Open Verdicts reads as a somber forensic archive — an evidence room from a century that never gave back its answers. The visual identity leans into implied absence and unfinished business: a single object, lit like a still life, that carries the weight of a case the record never closed.",
   "color_palette": "aged parchment, oxblood ink, gaslight amber, cold slate",
+  "approved_icon": "v3-lantern-fog",
   "icon_prompts": [
     {
       "name": "v1-unstamped-dossier",
@@ -22,6 +23,25 @@
       "name": "v4-pocket-watch",
       "concept": "A stopped silver pocket watch lying on a yellowed evidence cloth, the chain trailing off-frame — time arrested at the moment of the unsolved.",
       "prompt": "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, a tarnished silver pocket watch lying open and stopped, face-up on a yellowed linen evidence cloth, the chain trailing into shadow, viewed from directly above, warm low lamp light pooling around it, no human figures, single subject filling frame, minimal dark background, centered square composition, cinematic composition, atmospheric, no text, no captions, no watermarks"
+    }
+  ],
+  "banner_prompts": [
+    {
+      "name": "v1-evidence-bench",
+      "concept": "A wide dark wooden coroner's bench seen from above, with multiple evidence objects laid out in a single horizontal line — case file with broken seal, brass lantern unlit, open pocket watch, magnifying glass, faded sepia photograph face-down. Lit by a single off-frame lamp. Center safe-area contains the lantern and watch (most legible objects).",
+      "prompt": "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, a long dark stained wooden coroner's bench seen from directly above, filling the full panoramic frame, on the bench arranged in a single horizontal row are five distinct evidence objects in a row: LEFT a weathered manila case file bound with frayed twine and a broken red wax seal, CENTER-LEFT a tarnished brass ship's lantern unlit, CENTER a tarnished silver pocket watch lying face-up open and stopped on a small yellowed cloth, CENTER-RIGHT a brass magnifying glass with a curved handle, RIGHT a faded sepia photograph lying face-down with corners curled, warm amber lamplight pooling from the upper left casting long soft shadows to the right, no human figures, painterly oil texture visible throughout, cinematic widescreen 16:9 panoramic composition, archival forensic mood, no text on any object, no captions, no watermarks"
+    },
+    {
+      "name": "v2-lantern-row-fog",
+      "concept": "A foggy harbor or pier at dusk with a horizontal row of brass ship's lanterns hanging at intervals from an unseen rope. Each lantern glows fainter as the row recedes into mist. Center safe-area has the closest, brightest lantern.",
+      "prompt": "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, a wide foggy harbor scene at dusk, dense pale grey atmospheric fog filling the entire frame and obscuring all detail beyond the foreground, a horizontal row of five tarnished brass ship's lanterns hanging from an unseen frayed rope across the panorama, each lantern progressively further away and dimmer than the last, the LEFT-most lantern barely visible as a pinpoint, the CENTER lantern brightest and closest with a warm amber glow against the grey fog, the RIGHT-most lantern fading into the mist again, no human figures, no visible ships or shore, painterly oil texture visible, cinematic widescreen 16:9 panoramic composition, monochromatic atmospheric mood with only the amber lantern glows breaking the grey, no text, no captions, no watermarks"
+    }
+  ],
+  "watermark_prompts": [
+    {
+      "name": "v1-lantern-mark",
+      "concept": "Tightly cropped hanging ship's lantern silhouette echoing the approved icon — designed for tiny video-overlay rendering. Single lantern with faint amber glow against neutral background.",
+      "prompt": "painterly illustration, oil-on-canvas texture, single bold focal subject, a single tarnished brass ship's lantern hanging from a short rope at the center of the frame, faint warm amber glow inside the lantern, the lantern shape filling 75 percent of the square frame vertically, plain near-white pale-grey misty background with subtle painterly texture, extremely high contrast between dark lantern silhouette and pale background, no fine detail, suitable for use as a small bottom-corner video watermark at 150 pixels, centered square composition, minimal background, readable at very small sizes, no text, no captions, no other watermarks"
     }
   ]
 }
