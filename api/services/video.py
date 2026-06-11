@@ -40,6 +40,8 @@ OUTPUT_H = 1920
 FPS = 30
 
 TITLE_FONT_SIZE = 140
+TITLE_FONT_SIZE_MIN = 70
+TITLE_MAX_WIDTH = 1000
 CAPTION_FONT_SIZE = 60
 CAPTION_MAX_TEXT_WIDTH = 900
 
@@ -138,9 +140,15 @@ def _compute_image_segments(
 
 
 def _render_title_png(text: str, font_path: Path, out_path: Path) -> tuple[int, int]:
-    font = ImageFont.truetype(str(font_path), TITLE_FONT_SIZE)
     pad_x, pad_y, shadow_off = 24, 16, 8
+    target_text_w = TITLE_MAX_WIDTH - 2 * pad_x - shadow_off
+    font = ImageFont.truetype(str(font_path), TITLE_FONT_SIZE)
     bbox = font.getbbox(text)
+    raw_tw = bbox[2] - bbox[0]
+    if raw_tw > target_text_w:
+        size = max(TITLE_FONT_SIZE_MIN, int(TITLE_FONT_SIZE * target_text_w / raw_tw))
+        font = ImageFont.truetype(str(font_path), size)
+        bbox = font.getbbox(text)
     tw, th = int(bbox[2] - bbox[0]), int(bbox[3] - bbox[1])
     w = tw + pad_x * 2 + shadow_off
     h = th + pad_y * 2 + shadow_off
