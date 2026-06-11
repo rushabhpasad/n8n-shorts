@@ -46,7 +46,7 @@ DEFAULT_OLLAMA_URL = "http://localhost:11434"
 DEFAULT_MODEL = "gemma4:latest"
 
 WIKTIONARY_BASE = "https://en.wiktionary.org/api/rest_v1/page/html"
-USER_AGENT = "etymology-shorts/1.0 (https://github.com/rushabhpasad/n8n-etymology-shorts)"
+USER_AGENT = "n8n-shorts/1.0 (https://github.com/rushabhpasad/n8n-shorts)"
 
 # Each channel's words.csv may have a different schema (column names for the
 # subject and the attribute). We detect the actual column names at runtime

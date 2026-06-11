@@ -17,7 +17,7 @@
 
 set -euo pipefail
 
-ROOT="${HOME}/etymology-shorts"
+ROOT="${HOME}/n8n-shorts"
 SECRETS="${ROOT}/secrets"
 OUT="${ROOT}/output"
 

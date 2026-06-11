@@ -24,7 +24,7 @@ from mflux.models.common.config import ModelConfig
 from mflux.models.z_image.variants.z_image import ZImage
 from mflux.utils.image_util import ImageUtil
 
-OUT_DIR = Path.home() / "etymology-shorts" / "assets" / "brand"
+OUT_DIR = Path.home() / "n8n-shorts" / "assets" / "brand"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 BANNER_PATH = OUT_DIR / "banner_2048x1152.png"
@@ -50,7 +50,7 @@ PROMPT = (
     "no watermarks"
 )
 
-FONT_PATH = Path.home() / "etymology-shorts" / "assets" / "fonts" / "Inter-Bold.ttf"
+FONT_PATH = Path.home() / "n8n-shorts" / "assets" / "fonts" / "Inter-Bold.ttf"
 
 TITLE = "Wordstrata"
 TAGLINE = "Every word has buried layers."

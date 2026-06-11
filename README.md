@@ -1,4 +1,4 @@
-# etymology-shorts
+# n8n-shorts
 
 A fully-local YouTube Shorts factory. One curated entry per channel per day →
 painterly 9:16 video → uploaded to YouTube. No third-party AI APIs;
@@ -54,8 +54,8 @@ n8n in Docker reaches the host via `http://host.docker.internal:7860`.
 
 ```bash
 # 1. Clone and enter
-git clone https://github.com/rushabhpasad/n8n-etymology-shorts.git etymology-shorts
-cd etymology-shorts
+git clone https://github.com/rushabhpasad/n8n-shorts.git n8n-shorts
+cd n8n-shorts
 
 # 2. Install host tools (one-time)
 brew install python@3.12 uv ffmpeg jq
@@ -156,7 +156,7 @@ bash scripts/migrate_to_multichannel.sh   # moves secrets/ + output/ in-place
 ## Project structure
 
 ```
-etymology-shorts/
+n8n-shorts/
 ├── api/                          # FastAPI service ("shorts-api")
 │   ├── main.py                   # endpoints — all path-scoped by channel
 │   ├── channels.py               # channel registry — loads channels/<slug>/channel.json
@@ -263,10 +263,10 @@ upload via YouTube Studio → Customisation → Branding → Picture.
 
 ## State & storage
 
-- **`~/etymology-shorts/state.db`** (SQLite) — words queue + per-upload audit
+- **`~/n8n-shorts/state.db`** (SQLite) — words queue + per-upload audit
   trail with model versions, file paths, and YouTube IDs. Single source of
   truth.
-- **`~/etymology-shorts/output/`** — `scripts/`, `audio/`, `images/`,
+- **`~/n8n-shorts/output/`** — `scripts/`, `audio/`, `images/`,
   `videos/`. One file per word.
 - **`~/.cache/huggingface/hub/`** — model weights (~15 GB Z-Image-Turbo, ~60 MB per Piper voice × 4).
 

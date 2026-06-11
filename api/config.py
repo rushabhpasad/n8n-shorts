@@ -49,7 +49,7 @@ class Settings(BaseSettings):
         "en_US-bryce-medium",   # public domain (own recording, conversational)
         "en_US-joe-medium",     # CC0 (OHF-Voice)
     ])
-    piper_voices_dir: Path = Field(default=Path.home() / "etymology-shorts" / "assets" / "piper")
+    piper_voices_dir: Path = Field(default=Path.home() / "n8n-shorts" / "assets" / "piper")
     # length_scale: 1.0 = normal, >1 = slower. 1.1 → 10% slower per user request.
     piper_length_scale: float = Field(default=1.1)
 
@@ -79,14 +79,14 @@ class Settings(BaseSettings):
     outro_pause_s: float = Field(default=0.25)
 
     # Storage. Per-channel output lives at `<data_dir>/<channel>/{scripts,audio,images,videos}`.
-    data_dir: Path = Field(default=Path.home() / "etymology-shorts" / "output")
-    db_path: Path = Field(default=Path.home() / "etymology-shorts" / "state.db")
+    data_dir: Path = Field(default=Path.home() / "n8n-shorts" / "output")
+    db_path: Path = Field(default=Path.home() / "n8n-shorts" / "state.db")
 
     # YouTube — secrets are per-channel:
     #   secrets/youtube_oauth.<channel>.json
     #   secrets/youtube_token.<channel>.json
     secrets_dir: Path = Field(
-        default=Path.home() / "etymology-shorts" / "secrets",
+        default=Path.home() / "n8n-shorts" / "secrets",
     )
 
     def channel_data_dir(self, channel: str) -> Path:

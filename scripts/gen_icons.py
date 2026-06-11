@@ -1,7 +1,7 @@
 """Generate channel icon candidates via Z-Image-Turbo.
 
 Standalone. Loads its own ZImage model instance (independent of the running
-shorts-api). Outputs 4 1024×1024 candidates into ~/etymology-shorts/assets/brand/.
+shorts-api). Outputs 4 1024×1024 candidates into ~/n8n-shorts/assets/brand/.
 
 Usage:
   cd <repo>/api
@@ -17,7 +17,7 @@ from mflux.models.common.config import ModelConfig
 from mflux.models.z_image.variants.z_image import ZImage
 from mflux.utils.image_util import ImageUtil
 
-OUT_DIR = Path.home() / "etymology-shorts" / "assets" / "brand"
+OUT_DIR = Path.home() / "n8n-shorts" / "assets" / "brand"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 W = H = 1024

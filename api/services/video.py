@@ -46,8 +46,8 @@ CAPTION_FONT_SIZE = 60
 CAPTION_MAX_TEXT_WIDTH = 900
 
 FONT_CANDIDATES = [
-    Path.home() / "etymology-shorts" / "assets" / "fonts" / "Inter-Bold.ttf",
-    Path.home() / "etymology-shorts" / "assets" / "fonts" / "Inter-Black.ttf",
+    Path.home() / "n8n-shorts" / "assets" / "fonts" / "Inter-Bold.ttf",
+    Path.home() / "n8n-shorts" / "assets" / "fonts" / "Inter-Black.ttf",
     Path("/System/Library/Fonts/Supplemental/Arial Bold.ttf"),
     Path("/Library/Fonts/Arial Bold.ttf"),
 ]
