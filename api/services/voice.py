@@ -13,80 +13,21 @@ from __future__ import annotations
 import json
 import logging
 import random
-import re
 import wave
 from pathlib import Path
 
 import httpx
-from num2words import num2words
 from piper import PiperVoice
 
 from config import settings
 from models import Script
+from services.text_normalize import normalize_for_tts
 
 log = logging.getLogger("shorts-api.voice")
 
 # rhasspy/piper-voices on Hugging Face:
 # https://huggingface.co/rhasspy/piper-voices/tree/main/en/en_US/<speaker>/<quality>/
 PIPER_HF_BASE = "https://huggingface.co/rhasspy/piper-voices/resolve/main"
-
-# Strip paired markdown emphasis (*bold* / _italic_) so Piper doesn't say
-# "asterisk nostos asterisk" out loud.
-_EMPH_RE = re.compile(r"(\*+)([^*]+?)\1|(_+)([^_]+?)\3")
-
-# Strip emoji codepoints so Piper doesn't try to speak them.
-_EMOJI_RE = re.compile(
-    "["
-    "\U0001F000-\U0001FAFF"  # SMP — emoticons / pictographs / etc.
-    "\U00002600-\U000027BF"  # misc symbols + dingbats
-    "♀-♂"
-    "☀-⭕"
-    "‍"
-    "⏏⏩⌚️〰"
-    "]+",
-    flags=re.UNICODE,
-)
-_WS_RE = re.compile(r"\s+")
-
-# Year patterns we expand to spoken form so Piper doesn't read "1688" as
-# "one thousand six hundred eighty-eight". Range covers years a sane
-# etymology channel might use.
-_YEAR_RANGE_RE = re.compile(r"\b(1\d{3}|20[0-3]\d)\s*[–—\-]\s*(1\d{3}|20[0-3]\d)\b")
-_YEAR_DECADE_RE = re.compile(r"\b(1\d{2}0|20[0-3]0)s\b")
-_YEAR_RE = re.compile(r"\b(1\d{3}|20[0-3]\d)\b")
-
-
-def _spoken_decade(year_starting_decade: int) -> str:
-    """1830 → 'eighteen thirties' (pluralize the last word of the year form)."""
-    spoken = num2words(year_starting_decade, to="year")
-    # 'eighteen thirty' → 'eighteen thirties'
-    if spoken.endswith("y"):
-        return spoken[:-1] + "ies"
-    return spoken + "s"
-
-
-def _normalize_numbers_for_tts(text: str) -> str:
-    text = _YEAR_RANGE_RE.sub(
-        lambda m: f"{num2words(int(m.group(1)), to='year')} to "
-                  f"{num2words(int(m.group(2)), to='year')}",
-        text,
-    )
-    text = _YEAR_DECADE_RE.sub(
-        lambda m: _spoken_decade(int(m.group(1))),
-        text,
-    )
-    text = _YEAR_RE.sub(
-        lambda m: num2words(int(m.group(1)), to="year"),
-        text,
-    )
-    return text
-
-
-def _normalize_for_tts(text: str) -> str:
-    text = _EMPH_RE.sub(lambda m: m.group(2) or m.group(4) or "", text)
-    text = _EMOJI_RE.sub("", text)
-    text = _normalize_numbers_for_tts(text)
-    return _WS_RE.sub(" ", text).strip()
 
 
 def _parse_voice(voice: str) -> tuple[str, str, str]:
@@ -171,7 +112,12 @@ def synthesize_to_wav(
     # Append outro CTA to the last beat (no-op if empty).
     script = script.with_outro_cta(settings.outro_cta)
 
-    text = "\n\n".join(_normalize_for_tts(b.narration.strip()) for b in script.beats)
+    # normalize_for_tts preserves any \n\n paragraph breaks inside each beat's
+    # narration — important for the payoff↔CTA boundary, which Piper would
+    # otherwise read as a single utterance (causing the t=40s clip we saw on
+    # word_0005). Beats are joined with \n\n too so Piper inserts inter-beat
+    # silence cleanly.
+    text = "\n\n".join(normalize_for_tts(b.narration.strip()) for b in script.beats)
 
     # length_scale > 1 slows speech. API moved between Piper versions; try the
     # SynthesisConfig path (current piper-tts ≥1.3), fall back to plain kwarg.

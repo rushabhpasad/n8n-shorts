@@ -31,6 +31,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from config import settings
 from models import Script
+from services.text_normalize import normalize_inline
 
 log = logging.getLogger("shorts-api.video")
 
@@ -73,29 +74,15 @@ def _compute_beat_durations(script: Script, total_s: float) -> list[float]:
 
 
 _SENT_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
-_EMPH_RE = re.compile(r"(\*+)([^*]+?)\1|(_+)([^_]+?)\3")
-_EMOJI_RE = re.compile(
-    "["
-    "\U0001F000-\U0001FAFF"
-    "\U00002600-\U000027BF"
-    "♀-♂☀-⭕‍"
-    "⏏⏩⌚️〰"
-    "]+",
-    flags=re.UNICODE,
-)
-_WS_RE = re.compile(r"\s+")
-
-
-def _normalize_text(text: str) -> str:
-    """Strip markdown emphasis pairs and emoji codepoints; collapse whitespace."""
-    text = _EMPH_RE.sub(lambda m: m.group(2) or m.group(4) or "", text)
-    text = _EMOJI_RE.sub("", text)
-    return _WS_RE.sub(" ", text).strip()
 
 
 def _split_sentences(narration: str) -> list[str]:
+    """Split narration into normalized sentences. Uses the SAME normalizer as
+    voice.py so the captions read exactly what Piper says (years/ordinals/etc.
+    expanded). normalize_inline flattens any paragraph breaks since each
+    caption is a single line."""
     parts = _SENT_SPLIT_RE.split(narration.strip())
-    return [_normalize_text(p.strip()) for p in parts if p.strip()]
+    return [normalize_inline(p.strip()) for p in parts if p.strip()]
 
 
 def _compute_sentence_timings(
@@ -392,7 +379,7 @@ def assemble_video(
     )
     if cta_text:
         sent_timings.append(
-            (_normalize_text(cta_text), round(story_dur, 3), round(total_s, 3))
+            (normalize_inline(cta_text), round(story_dur, 3), round(total_s, 3))
         )
 
     segments = _compute_image_segments(script, beat_durs)  # narration segments only
