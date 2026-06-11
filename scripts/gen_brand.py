@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate channel brand artifacts (icons, banners, watermarks) via Z-Image-Turbo.
+"""Generate channel brand artifacts (icons, banners, watermarks).
 
 Run from inside the api venv (depends on mflux + Pillow):
 
@@ -9,21 +9,24 @@ Run from inside the api venv (depends on mflux + Pillow):
 
 Outputs:
 
-  assets/brand/<channel>/icon_<name>.png      (1024×1024 square)
-  assets/brand/<channel>/banner_<name>.png    (2048×1152, YouTube banner spec)
-  assets/brand/<channel>/watermark_<name>.png (512×512 square)
+  assets/brand/<channel>/icon_<name>.png      (1024×1024 square, diffusion)
+  assets/brand/<channel>/banner_<name>.png    (2048×1152, diffusion)
+  assets/brand/<channel>/watermark.png        (512×512 square, PIL resize of approved icon)
 
-Defaults differ per type:
+The watermark is intentionally NOT diffusion-generated — YouTube's watermark
+is a tiny corner overlay (~150×150 on playback), and brand consistency wants
+the same visual mark the channel icon uses. We just resize the approved icon.
+
+Defaults for diffusion types:
 
   type        width   height   steps   seed-base
   icon        1024    1024     8       11
   banner      2048    1152     6       21
-  watermark    512     512     8       31
 
-Reads channels/<slug>/brand.json for the prompts list of each type. Each list
-entry has {name, concept, prompt}.
+Reads channels/<slug>/brand.json. For icon/banner: reads {icon,banner}_prompts.
+For watermark: reads `approved_icon` and loads the corresponding icon PNG.
 
-Optional flags:
+Optional flags (diffusion types only):
   --width/--height/--steps/--seed/--quantize  to override defaults
   --only <name>  to render a single prompt by name
 """
@@ -44,12 +47,14 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 CHANNELS_DIR = REPO_ROOT / "channels"
 BRAND_OUT = REPO_ROOT / "assets" / "brand"
 
+# Diffusion-generated artifacts only.
 # (prompts_key, width, height, steps, seed_base, filename_prefix)
 TYPE_DEFAULTS = {
     "icon":      ("icon_prompts",      1024, 1024, 8, 11, "icon"),
     "banner":    ("banner_prompts",    2048, 1152, 6, 21, "banner"),
-    "watermark": ("watermark_prompts",  512,  512, 8, 31, "watermark"),
 }
+
+WATERMARK_SIZE = 512  # output size for the resized-from-icon watermark
 
 
 def load_brand(channel: str) -> dict:
@@ -59,11 +64,35 @@ def load_brand(channel: str) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def make_watermark(channel: str) -> int:
+    """Resize the channel's approved icon into a watermark.png."""
+    from PIL import Image
+
+    brand = load_brand(channel)
+    approved = brand.get("approved_icon")
+    if not approved:
+        log.error("channels/%s/brand.json has no approved_icon", channel)
+        return 1
+    out_dir = BRAND_OUT / channel
+    src = out_dir / f"icon_{approved}.png"
+    dst = out_dir / "watermark.png"
+    if not src.exists():
+        log.error("approved icon not found: %s", src)
+        return 1
+    img = Image.open(src).convert("RGBA")
+    img.thumbnail((WATERMARK_SIZE, WATERMARK_SIZE), Image.Resampling.LANCZOS)
+    img.save(dst, "PNG", optimize=True)
+    log.info("%s: %s -> %s (%dx%d, %.0f KB)",
+             channel, src.name, dst.name,
+             img.size[0], img.size[1], dst.stat().st_size / 1024)
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--channel", required=True, help="channel slug (must match channels/<slug>/)")
-    ap.add_argument("--type", choices=list(TYPE_DEFAULTS.keys()), default="icon",
-                    help="artifact type to render (default: icon)")
+    ap.add_argument("--type", choices=list(TYPE_DEFAULTS.keys()) + ["watermark"], default="icon",
+                    help="artifact type (default: icon)")
     ap.add_argument("--width", type=int, default=None)
     ap.add_argument("--height", type=int, default=None)
     ap.add_argument("--steps", type=int, default=None, help="diffusion steps")
@@ -71,6 +100,9 @@ def main() -> int:
     ap.add_argument("--quantize", type=int, default=8)
     ap.add_argument("--only", default=None, help="only generate the prompt with this name")
     args = ap.parse_args()
+
+    if args.type == "watermark":
+        return make_watermark(args.channel)
 
     prompts_key, def_w, def_h, def_steps, def_seed, prefix = TYPE_DEFAULTS[args.type]
     width = args.width if args.width is not None else def_w

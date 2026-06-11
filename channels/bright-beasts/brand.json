@@ -1,47 +1,40 @@
 {
   "channel": "bright-beasts",
-  "brand_concept": "Bright Beasts is a naturalist's field-journal aesthetic — the visual feel of a 19th-century cognition study rendered in oil: an animal caught mid-act of thinking, with the apparatus of inquiry visible. The mark should signal 'documented intelligence' — curiosity captured in pigment — not zoo cuteness or wildlife-doc gloss.",
+  "brand_concept": "Bright Beasts is a naturalist's field-journal aesthetic \u2014 the visual feel of a 19th-century cognition study rendered in oil: an animal caught mid-act of thinking, with the apparatus of inquiry visible. The mark should signal 'documented intelligence' \u2014 curiosity captured in pigment \u2014 not zoo cuteness or wildlife-doc gloss.",
   "color_palette": "warm umber, aged ivory, slate blue, soft ochre",
   "approved_icon": "v1-crow-hook",
   "icon_prompts": [
     {
       "name": "v1-crow-hook",
-      "concept": "A corvid in profile holding a bent-wire hook in its beak — the channel's signature act of tool-making intelligence, distilled to one creature and one object.",
+      "concept": "A corvid in profile holding a bent-wire hook in its beak \u2014 the channel's signature act of tool-making intelligence, distilled to one creature and one object.",
       "prompt": "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, a single glossy black corvid in sharp profile against a plain warm-umber background, its beak gripping a bent copper wire shaped into a small hook, the bird's eye catching a glint of light, single subject filling the frame, bold silhouette readable at small size, minimal negative space, centered square composition, cinematic composition, atmospheric, no text, no captions, no watermarks"
     },
     {
       "name": "v2-octopus-jar",
-      "concept": "An octopus arm curling around a glass jar lid — the iconic image of invertebrate problem-solving, abstracted to a single gesture.",
+      "concept": "An octopus arm curling around a glass jar lid \u2014 the iconic image of invertebrate problem-solving, abstracted to a single gesture.",
       "prompt": "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, a single muscular octopus arm with visible suckers wrapping around the brass-rimmed lid of a clear glass jar, the arm curling in from the upper right, the jar centered and three-quarters visible, soft slate-blue water tone behind, single iconic subject filling frame, bold central composition readable at thumbnail size, minimal background detail, centered square composition, cinematic composition, atmospheric, no text, no captions, no watermarks"
     },
     {
       "name": "v3-mirror-mark",
-      "concept": "An elephant's eye reflected in a fragment of mirror with a chalk mark visible — the mirror self-recognition test as a single, symbolic close-up.",
+      "concept": "An elephant's eye reflected in a fragment of mirror with a chalk mark visible \u2014 the mirror self-recognition test as a single, symbolic close-up.",
       "prompt": "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, an extreme close-up of a single elephant's eye and weathered grey skin, a small rectangular mirror fragment held at the edge of the frame reflecting the eye back, a faint chalk-white X mark visible on the forehead skin, warm ochre and umber tones, single focal subject filling the frame, bold simple shapes readable at small size, minimal background, centered square composition, cinematic composition, atmospheric, no text, no captions, no watermarks"
     },
     {
       "name": "v4-jay-cache",
-      "concept": "A scrub jay's beak placing an acorn beneath a single pebble — the act of episodic memory and planning, reduced to one quiet gesture.",
+      "concept": "A scrub jay's beak placing an acorn beneath a single pebble \u2014 the act of episodic memory and planning, reduced to one quiet gesture.",
       "prompt": "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, a scrub jay seen from above tucking a single acorn beneath a small smooth pebble on bare earth, the bird's blue-grey head and beak meeting the ground at the center of the frame, soft ochre soil surrounding, one subject and one cached object, bold readable composition at thumbnail size, minimal surrounding detail, centered square composition, cinematic composition, atmospheric, no text, no captions, no watermarks"
     }
   ],
   "banner_prompts": [
     {
       "name": "v1-field-journal-spread",
-      "concept": "A naturalist's field journal spread open across the panorama, four painterly animal studies side by side — each showing one species mid-cognitive-act. The center safe-area holds the corvid and the octopus (the two most iconic for the channel).",
+      "concept": "A naturalist's field journal spread open across the panorama, four painterly animal studies side by side \u2014 each showing one species mid-cognitive-act. The center safe-area holds the corvid and the octopus (the two most iconic for the channel).",
       "prompt": "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, a wide aged-ivory naturalist's field journal lying fully open and flat on a dark wooden desk seen from directly above, filling the full panoramic frame, the open pages divided into four painterly study panels by faint sepia ink dividers: LEFT panel a glossy black corvid in profile gripping a bent copper wire hook in its beak, CENTER-LEFT a single muscular octopus arm wrapping around the brass lid of a clear glass jar, CENTER-RIGHT an asian elephant's eye and grey skin with a small mirror fragment reflecting back, RIGHT a scrub jay tucking a single acorn beneath a smooth pebble, all four studies in matching painterly oil illustration style, warm desk-lamp glow from the upper left, no human figures, no human handwriting or letters anywhere on the pages, painterly oil texture visible, cinematic widescreen 16:9 panoramic composition, naturalist study aesthetic, no text or letters, no captions, no watermarks"
     },
     {
       "name": "v2-zoological-pavilion",
-      "concept": "Wide exterior of a Victorian-era zoological observation pavilion — multiple separate cubic display niches, each containing a single animal mid-cognitive-act. A faceless naturalist silhouette stands at one side, sketchbook in hand.",
+      "concept": "Wide exterior of a Victorian-era zoological observation pavilion \u2014 multiple separate cubic display niches, each containing a single animal mid-cognitive-act. A faceless naturalist silhouette stands at one side, sketchbook in hand.",
       "prompt": "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, a wide exterior view of a Victorian-era brass-and-glass zoological observation pavilion, four separate cubic display niches arranged in a horizontal row across the panorama, each lit from inside with warm amber gaslight, LEFT niche contains a single black corvid manipulating a bent copper wire on a perch, CENTER-LEFT niche contains a translucent water tank with a single octopus arm reaching for a glass jar floating inside, CENTER-RIGHT niche contains a single elephant eye visible through the glass with a small mirror set into the wall, RIGHT niche contains a scrub jay placing an acorn beneath a pebble on a soil bed, soft pale fog around the pavilion, FAR RIGHT a single faceless silhouette of a naturalist in a long coat seen from behind holding a sketchbook, no other figures, painterly oil texture visible, cinematic widescreen 16:9 panoramic composition, scholarly observational mood, no text or signs anywhere on the pavilion, no captions, no watermarks"
-    }
-  ],
-  "watermark_prompts": [
-    {
-      "name": "v1-crow-mark",
-      "concept": "Tightly cropped corvid profile silhouette echoing the approved icon — bent-wire hook still in beak. Designed for tiny video-overlay rendering.",
-      "prompt": "painterly illustration, oil-on-canvas texture, single bold focal subject, a single glossy black corvid silhouette in sharp profile at the center of the frame, its beak gripping a small bent copper wire shaped into a hook, the bird shape filling 80 percent of the square frame, plain near-white pale-ivory background with subtle painterly texture, extremely high contrast between black bird and pale background, no fine detail in feathers, suitable for use as a small bottom-corner video watermark at 150 pixels, centered square composition, minimal background, readable at very small sizes, no text, no captions, no other watermarks"
     }
   ]
 }

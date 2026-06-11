@@ -1,47 +1,40 @@
 {
   "channel": "the-mythscape",
-  "brand_concept": "A panoramic, archival-feeling mark for a channel that retells myths from every culture — the visual identity leans into the 'scape' half of the name: a vast, atmospheric world glimpsed through a single sacred object or solitary mythic figure, rendered like an aged museum oil painting.",
+  "brand_concept": "A panoramic, archival-feeling mark for a channel that retells myths from every culture \u2014 the visual identity leans into the 'scape' half of the name: a vast, atmospheric world glimpsed through a single sacred object or solitary mythic figure, rendered like an aged museum oil painting.",
   "color_palette": "muted umber, aged parchment, dusk indigo, lamp-gold",
   "approved_icon": "v3-coiled-serpent",
   "icon_prompts": [
     {
       "name": "v1-lone-summit",
-      "concept": "A lone hooded figure at the summit of a vast mythic mountain at dusk — Mount Mandara / Olympus / Yggdrasil-as-mountain — the panoramic-scape made visible.",
+      "concept": "A lone hooded figure at the summit of a vast mythic mountain at dusk \u2014 Mount Mandara / Olympus / Yggdrasil-as-mountain \u2014 the panoramic-scape made visible.",
       "prompt": "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, a single hooded mythic figure standing in silhouette at the very summit of a vast ancient mountain at dusk, viewed from behind, holding a tall staff, distant layered peaks fading into atmospheric haze beyond, the figure and summit centered as the bold focal subject filling the lower third of the frame, sky filling the upper two-thirds with golden-violet dusk light, no face visible, monumental ancient atmosphere, centered square composition, single subject filling frame, minimal background, readable at small thumbnail size, cinematic composition, atmospheric, no text, no captions, no watermarks"
     },
     {
       "name": "v2-offering-bowl",
-      "concept": "A single weathered bronze ritual offering bowl on a stone altar, a thread of smoke rising — the universal mythic gesture, free of any single pantheon.",
+      "concept": "A single weathered bronze ritual offering bowl on a stone altar, a thread of smoke rising \u2014 the universal mythic gesture, free of any single pantheon.",
       "prompt": "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, a single weathered bronze ritual offering bowl resting at the center of a worn stone altar, a slow thick curl of pale smoke rising straight up from it, the bowl filling the middle of the frame as the bold central focal subject, soft darkness around the edges suggesting an ancient sanctuary interior, no figures present, sacred quiet mood, centered square composition, minimal background, readable at small thumbnail size, cinematic composition, atmospheric, no text, no captions, no watermarks"
     },
     {
       "name": "v3-coiled-serpent",
-      "concept": "A great coiled serpent encircling a single egg or sun-disc — the cosmic-serpent archetype found from Norse to Aztec to Vedic myth.",
+      "concept": "A great coiled serpent encircling a single egg or sun-disc \u2014 the cosmic-serpent archetype found from Norse to Aztec to Vedic myth.",
       "prompt": "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, an enormous coiled mythic serpent with patterned bronze and ochre scales wrapped in a perfect ring around a single softly glowing pale sphere at the center of the frame, the serpent's head resting against its own tail, the whole coil filling the square as the bold central focal subject, plain dark indigo void behind it, ancient cosmogonic feeling, centered square composition, single subject filling frame, minimal background, readable at small thumbnail size, cinematic composition, atmospheric, no text, no captions, no watermarks"
     },
     {
       "name": "v4-storyteller-silhouette",
-      "concept": "Back of a hooded storyteller seated before a small fire, gesturing — the act of myth-telling itself, faceless and universal.",
+      "concept": "Back of a hooded storyteller seated before a small fire, gesturing \u2014 the act of myth-telling itself, faceless and universal.",
       "prompt": "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, viewed from behind a single hooded storyteller figure seated cross-legged before a small low fire, one hand raised mid-gesture as if shaping a tale in the air, warm firelight catching the edge of the cloak, the figure and fire centered as the bold focal subject filling the lower two-thirds of the frame, soft dark cavern or open-night background with no other figures, intimate ancient atmosphere, no face visible, centered square composition, minimal background, readable at small thumbnail size, cinematic composition, atmospheric, no text, no captions, no watermarks"
     }
   ],
   "banner_prompts": [
     {
       "name": "v1-mythic-horizon",
-      "concept": "A wide painterly horizon with archetypal mythic elements scattered across the panorama — a stone altar with rising smoke on the left, a lone hooded figure on a distant peak in the center, the coiled serpent (echo of the icon) silhouetted against a setting sun on the right. All centered content sits inside YouTube's safe area.",
+      "concept": "A wide painterly horizon with archetypal mythic elements scattered across the panorama \u2014 a stone altar with rising smoke on the left, a lone hooded figure on a distant peak in the center, the coiled serpent (echo of the icon) silhouetted against a setting sun on the right. All centered content sits inside YouTube's safe area.",
       "prompt": "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, a vast panoramic mythic landscape at dusk seen from a far high vantage, golden-violet sky filling the upper third, layered atmospheric mountain ranges receding into haze, on the LEFT a weathered stone altar with a slow pale curl of incense smoke rising, in the CENTER-LEFT a tiny lone hooded mythic figure with a staff silhouetted on a distant peak, in the CENTER a great glowing pale sun-disc setting on the horizon, in the RIGHT a faint enormous coiled serpent silhouette wrapped around the setting sun like an ouroboros, all elements harmonized within a single muted earth-tone painting, painterly oil texture visible, cinematic widescreen 16:9 panoramic composition, atmospheric depth, no figures faces visible, no text, no captions, no watermarks"
     },
     {
       "name": "v2-mythic-scroll",
-      "concept": "An aged unfurled scroll viewed flat, showing four side-by-side painted mythic vignettes — a great flood, a hero with weapon, a coiled cosmic serpent, a figure crowned with stars. Reads like a museum frieze.",
+      "concept": "An aged unfurled scroll viewed flat, showing four side-by-side painted mythic vignettes \u2014 a great flood, a hero with weapon, a coiled cosmic serpent, a figure crowned with stars. Reads like a museum frieze.",
       "prompt": "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, an enormous aged parchment scroll fully unfurled and flattened against a dark velvet surface, the scroll filling the full panoramic frame, ON the scroll are four side-by-side painted mythic vignettes separated by faded ink dividers: LEFT a great flood with a small boat and tall waves, CENTER-LEFT a heroic figure silhouetted holding a spear above a slain beast, CENTER-RIGHT a great coiled serpent with patterned scales around a glowing sphere, RIGHT a robed figure crowned with stars looking up, all painted in muted earth-tone oil illustration matching one consistent visual style, the scroll edges torn and yellowed with age, soft warm lamp glow from off-frame top, cinematic widescreen 16:9 panoramic composition, no human faces clearly visible, no text or letters anywhere on the scroll, no captions, no watermarks"
-    }
-  ],
-  "watermark_prompts": [
-    {
-      "name": "v1-serpent-mark",
-      "concept": "Tightly cropped coiled serpent silhouette echoing the approved icon — designed for tiny video-overlay rendering. Bold simple shape, near-monochrome background.",
-      "prompt": "painterly illustration, oil-on-canvas texture, single bold focal subject, a single great coiled serpent silhouette in dark patterned bronze and ochre tones wrapped in a perfect ring around a small pale circle at the dead center of the frame, the serpent shape filling 85 percent of the square frame, plain near-white off-cream parchment background with very subtle painterly texture, extremely high contrast between serpent and background, no fine detail, suitable for use as a small bottom-corner video watermark at 150 pixels, centered square composition, minimal background, readable at very small sizes, no text, no captions, no other watermarks"
     }
   ]
 }
