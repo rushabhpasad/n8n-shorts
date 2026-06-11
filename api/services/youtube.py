@@ -22,8 +22,14 @@ from models import Script
 log = logging.getLogger("shorts-api.youtube")
 
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
+# YouTube video category IDs — full list:
+# https://developers.google.com/youtube/v3/docs/videoCategories/list
 CATEGORY_EDUCATION = "27"
 CATEGORY_SCIENCE_TECH = "28"
+CATEGORY_ENTERTAINMENT = "24"
+CATEGORY_PETS_ANIMALS = "15"
+CATEGORY_HOWTO_STYLE = "26"
+CATEGORY_PEOPLE_BLOGS = "22"
 
 
 def _credentials(channel: str) -> Credentials:
@@ -54,12 +60,26 @@ def upload_short(
     video_path: Path,
     privacy: str = "public",
     category_id: str = CATEGORY_EDUCATION,
+    default_language: str = "en",
+    default_audio_language: str = "en",
+    contains_synthetic_media: bool = True,
+    license_: str = "youtube",
 ) -> dict:
-    """Resumable upload. Returns {video_id, url, privacy}."""
+    """Resumable upload. Returns {video_id, url, privacy}.
+
+    Language fields:
+      - default_language: language of the title/description (snippet.defaultLanguage)
+      - default_audio_language: spoken language in the video (snippet.defaultAudioLanguage)
+    contains_synthetic_media: YouTube's altered/synthetic content disclosure. True
+      by default because the pipeline is fully AI-generated.
+    license_: "youtube" (Standard YouTube License) or "creativeCommon".
+    """
     if not video_path.exists():
         raise FileNotFoundError(video_path)
     if privacy not in ("private", "unlisted", "public"):
         raise ValueError(f"privacy must be private|unlisted|public, got {privacy!r}")
+    if license_ not in ("youtube", "creativeCommon"):
+        raise ValueError(f"license must be youtube|creativeCommon, got {license_!r}")
 
     creds = _credentials(channel)
     youtube = build("youtube", "v3", credentials=creds)
@@ -70,12 +90,17 @@ def upload_short(
             "description": script.youtube.description,
             "tags": script.youtube.tags,
             "categoryId": category_id,
-            "defaultLanguage": "en",
+            "defaultLanguage": default_language,
+            "defaultAudioLanguage": default_audio_language,
         },
         "status": {
             "privacyStatus": privacy,
             "madeForKids": False,
             "selfDeclaredMadeForKids": False,
+            "containsSyntheticMedia": contains_synthetic_media,
+            "license": license_,
+            "embeddable": True,
+            "publicStatsViewable": True,
         },
     }
 

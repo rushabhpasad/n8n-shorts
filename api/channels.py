@@ -31,6 +31,15 @@ class ChannelConfig(BaseModel):
     ai_disclosure: bool = True
     shorts_max_duration_s: int = 180
     content_safety: str | None = None
+    # YouTube upload metadata — sane defaults for English educational shorts.
+    # Override per channel in channel.json if needed.
+    # Category IDs: 27=Education, 28=Science & Technology, 24=Entertainment,
+    # 15=Pets & Animals, 26=Howto & Style, 22=People & Blogs. Full list:
+    # https://developers.google.com/youtube/v3/docs/videoCategories/list
+    youtube_category_id: str = "27"
+    youtube_default_language: str = "en"
+    youtube_default_audio_language: str = "en"
+    youtube_license: str = "youtube"
 
     @property
     def dir(self) -> Path:

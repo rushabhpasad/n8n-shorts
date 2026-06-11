@@ -151,6 +151,12 @@ class AssembleResponse(BaseModel):
 class UploadRequest(BaseModel):
     word_id: int
     privacy: Literal["private", "unlisted", "public"] = "public"
+    # Per-call overrides. When None, the channel-config default is used.
+    category_id: str | None = None
+    default_language: str | None = None
+    default_audio_language: str | None = None
+    contains_synthetic_media: bool | None = None
+    license: Literal["youtube", "creativeCommon"] | None = None
 
 
 class UploadResponse(BaseModel):

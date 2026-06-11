@@ -383,7 +383,22 @@ async def upload(channel: str, req: UploadRequest) -> UploadResponse:
 
     t0 = time.perf_counter()
     result = await asyncio.to_thread(
-        youtube_svc.upload_short, channel, script, video_path, req.privacy
+        youtube_svc.upload_short,
+        channel,
+        script,
+        video_path,
+        req.privacy,
+        category_id=req.category_id or cfg.youtube_category_id,
+        default_language=req.default_language or cfg.youtube_default_language,
+        default_audio_language=(
+            req.default_audio_language or cfg.youtube_default_audio_language
+        ),
+        contains_synthetic_media=(
+            cfg.ai_disclosure
+            if req.contains_synthetic_media is None
+            else req.contains_synthetic_media
+        ),
+        license_=req.license or cfg.youtube_license,
     )
     elapsed_ms = int((time.perf_counter() - t0) * 1000)
 
