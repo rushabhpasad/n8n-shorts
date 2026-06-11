@@ -36,7 +36,7 @@ class Script(BaseModel):
     title_text: str
     tagline: str = Field(min_length=4, max_length=80)
     beats: list[Beat] = Field(min_length=3, max_length=3)
-    image_prompts: list[str] = Field(min_length=5, max_length=7)
+    image_prompts: list[str] = Field(min_length=4, max_length=7)
     youtube: YouTubeMeta
 
     @model_validator(mode="after")
