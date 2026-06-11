@@ -114,7 +114,23 @@ def normalize_for_tts(text: str) -> str:
 
 
 def normalize_inline(text: str) -> str:
-    """Variant for caption rendering — same number/emphasis/emoji rules, but
-    flattens to a single line (collapses any `\\n\\n` too). Caption sentences
-    are already one-line, so the paragraph distinction doesn't matter here."""
+    """Voice-aligned single-line variant — full normalization (numbers
+    expanded) flattened to one line. Use this when measuring word counts
+    for timing math (Piper speaks the expanded form, so the count of words
+    Piper actually says is what gates sentence durations)."""
     return _INPARA_WS_RE.sub(" ", normalize_for_tts(text)).strip()
+
+
+def normalize_for_caption(text: str) -> str:
+    """Caption-rendering variant — strips markdown emphasis pairs and emoji
+    codepoints, collapses whitespace, but DOES NOT expand numbers/ordinals.
+
+    Captions are rendered as on-screen text, where digits should remain
+    digits (1880 reads cleanly; "eighteen eighty" would force a viewer to
+    parse spelled-out numerals). The voice says the expanded form; captions
+    show the original. Time-sync is preserved by computing sentence
+    durations from the voice form's word count (see video._split_for_video).
+    """
+    text = _EMPH_RE.sub(lambda m: m.group(2) or m.group(4) or "", text)
+    text = _EMOJI_RE.sub("", text)
+    return _INPARA_WS_RE.sub(" ", text).strip()

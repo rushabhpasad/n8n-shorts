@@ -31,7 +31,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from config import settings
 from models import Script
-from services.text_normalize import normalize_inline
+from services.text_normalize import normalize_for_caption, normalize_inline
 
 log = logging.getLogger("shorts-api.video")
 
@@ -76,13 +76,21 @@ def _compute_beat_durations(script: Script, total_s: float) -> list[float]:
 _SENT_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
 
 
-def _split_sentences(narration: str) -> list[str]:
-    """Split narration into normalized sentences. Uses the SAME normalizer as
-    voice.py so the captions read exactly what Piper says (years/ordinals/etc.
-    expanded). normalize_inline flattens any paragraph breaks since each
-    caption is a single line."""
+def _split_for_video(narration: str) -> list[tuple[str, int]]:
+    """Split narration into sentences. Returns (caption_text, voice_word_count)
+    per sentence. Caption preserves digits/ordinals as written; voice word
+    count uses the fully-expanded spoken form (what Piper actually says) so
+    sentence durations stay synced to the audio."""
     parts = _SENT_SPLIT_RE.split(narration.strip())
-    return [normalize_inline(p.strip()) for p in parts if p.strip()]
+    out: list[tuple[str, int]] = []
+    for p in parts:
+        if not p.strip():
+            continue
+        caption = normalize_for_caption(p.strip())
+        voice_form = normalize_inline(p.strip())
+        voice_wc = max(1, len(voice_form.split()))
+        out.append((caption, voice_wc))
+    return out
 
 
 def _compute_sentence_timings(
@@ -93,20 +101,19 @@ def _compute_sentence_timings(
     out: list[tuple[str, float, float]] = []
     beat_start = 0.0
     for i, beat in enumerate(script.beats):
-        sentences = _split_sentences(beat.narration)
+        sentences = _split_for_video(beat.narration)
         if not sentences:
-            sentences = [beat.on_screen]
-        word_counts = [max(1, len(s.split())) for s in sentences]
-        total_words = sum(word_counts)
+            sentences = [(normalize_for_caption(beat.on_screen), max(1, len(beat.on_screen.split())))]
+        total_words = sum(wc for _, wc in sentences)
         beat_dur = beat_durations[i]
         cursor = beat_start
-        for j, (sent, wc) in enumerate(zip(sentences, word_counts)):
+        for j, (caption, wc) in enumerate(sentences):
             if j == len(sentences) - 1:
                 end = beat_start + beat_dur
             else:
                 end = cursor + beat_dur * (wc / total_words)
             shifted_start = max(0.0, cursor - lead_s)
-            out.append((sent, round(shifted_start, 3), round(end, 3)))
+            out.append((caption, round(shifted_start, 3), round(end, 3)))
             cursor = end
         beat_start += beat_dur
     return out
@@ -379,7 +386,7 @@ def assemble_video(
     )
     if cta_text:
         sent_timings.append(
-            (normalize_inline(cta_text), round(story_dur, 3), round(total_s, 3))
+            (normalize_for_caption(cta_text), round(story_dur, 3), round(total_s, 3))
         )
 
     segments = _compute_image_segments(script, beat_durs)  # narration segments only
