@@ -142,28 +142,48 @@ def _compute_image_segments(
 def _render_title_png(text: str, font_path: Path, out_path: Path) -> tuple[int, int]:
     pad_x, pad_y, shadow_off = 24, 16, 8
     target_text_w = TITLE_MAX_WIDTH - 2 * pad_x - shadow_off
+    line_gap_factor = 1.05
+
     font = ImageFont.truetype(str(font_path), TITLE_FONT_SIZE)
-    bbox = font.getbbox(text)
-    raw_tw = bbox[2] - bbox[0]
-    if raw_tw > target_text_w:
-        size = max(TITLE_FONT_SIZE_MIN, int(TITLE_FONT_SIZE * target_text_w / raw_tw))
-        font = ImageFont.truetype(str(font_path), size)
-        bbox = font.getbbox(text)
-    tw, th = int(bbox[2] - bbox[0]), int(bbox[3] - bbox[1])
-    w = tw + pad_x * 2 + shadow_off
-    h = th + pad_y * 2 + shadow_off
+    raw_tw = font.getbbox(text)[2] - font.getbbox(text)[0]
+    if raw_tw <= target_text_w:
+        size = TITLE_FONT_SIZE
+        lines = [text]
+    else:
+        scaled = int(TITLE_FONT_SIZE * target_text_w / raw_tw)
+        if scaled >= TITLE_FONT_SIZE_MIN:
+            size = scaled
+            font = ImageFont.truetype(str(font_path), size)
+            lines = [text]
+        else:
+            size = TITLE_FONT_SIZE_MIN
+            font = ImageFont.truetype(str(font_path), size)
+            lines = _wrap_words(text.split(), font, target_text_w) or [text]
+
+    bboxes = [font.getbbox(line) for line in lines]
+    line_widths = [int(b[2] - b[0]) for b in bboxes]
+    text_w = max(line_widths)
+    line_h = int(size * line_gap_factor)
+    text_h = line_h * len(lines)
+
+    w = text_w + pad_x * 2 + shadow_off
+    h = text_h + pad_y * 2 + shadow_off
     img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    d.text(
-        (pad_x - bbox[0] + shadow_off, pad_y - bbox[1] + shadow_off),
-        text, font=font, fill=(0, 0, 0, 200),
-        stroke_width=6, stroke_fill=(0, 0, 0, 200),
-    )
-    d.text(
-        (pad_x - bbox[0], pad_y - bbox[1]),
-        text, font=font, fill=(255, 255, 255, 255),
-        stroke_width=6, stroke_fill=(0, 0, 0, 240),
-    )
+    for i, line in enumerate(lines):
+        bbox = bboxes[i]
+        x = (text_w - line_widths[i]) // 2 + pad_x - bbox[0]
+        y = pad_y + i * line_h - bbox[1]
+        d.text(
+            (x + shadow_off, y + shadow_off),
+            line, font=font, fill=(0, 0, 0, 200),
+            stroke_width=6, stroke_fill=(0, 0, 0, 200),
+        )
+        d.text(
+            (x, y),
+            line, font=font, fill=(255, 255, 255, 255),
+            stroke_width=6, stroke_fill=(0, 0, 0, 240),
+        )
     img.save(out_path)
     return w, h
 
