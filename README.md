@@ -144,15 +144,6 @@ curl -X POST -H 'content-type: application/json' \
 # Tunable in n8n/generate.py (CRON_BY_SLUG).
 ```
 
-## Migrating an existing single-channel install
-
-If you ran an earlier single-channel (Wordstrata-only) install:
-
-```bash
-bash scripts/migrate_to_multichannel.sh   # moves secrets/ + output/ in-place
-# then restart uvicorn — state.db migrates itself on startup
-```
-
 ## Project structure
 
 ```
@@ -168,33 +159,27 @@ n8n-shorts/
 │   │   ├── voice.py              # Piper TTS → WAV (random voice per call)
 │   │   ├── image.py              # Z-Image-Turbo via mflux (Apple Silicon; shared)
 │   │   ├── video.py              # ffmpeg + Pillow assembly, outro card render
-│   │   └── youtube.py            # YouTube Data API v3 (per-channel OAuth)
+│   │   └── youtube.py            # YouTube Data API v3 (per-channel OAuth + metadata)
 │   └── pyproject.toml            # uv-managed deps
 ├── channels/                     # one directory per channel
-│   ├── wordstrata/
-│   │   ├── channel.json          # slug, name, handle, tagline, categories
-│   │   ├── prompts/{script,image,words}.md
-│   │   └── words.csv             # the channel's curated queue
-│   ├── the-mythscape/
-│   │   └── brand.json            # brand concept + 4 icon prompts (mflux)
-│   ├── open-verdicts/
-│   │   └── brand.json
-│   └── bright-beasts/
-│       └── brand.json
+│   └── <slug>/
+│       ├── channel.json          # slug, name, handle, tagline, YouTube upload metadata
+│       ├── prompts/{script,image,words}.md   # channel-specific LLM prompts
+│       ├── words.csv             # the channel's curated queue
+│       └── brand.json            # brand concept + icon prompts (the-mythscape, open-verdicts, bright-beasts)
 ├── sql/schema.sql                # channel-scoped queue + audit
 ├── n8n/
 │   ├── generate.py               # generates one workflow.json per channel
 │   └── workflows/<slug>.json     # generated — import each into n8n
 ├── scripts/
+│   ├── dev-up.sh                 # start shorts-api in dev (auto-reload)
 │   ├── yt_init.py                # OAuth bootstrap — pass --channel <slug>
 │   ├── gen_words.py              # propose new candidates — pass --channel <slug>
-│   ├── gen_brand.py              # channel-icon generator (mflux) — pass --channel <slug>
-│   └── migrate_to_multichannel.sh  # one-time install migration
+│   └── gen_brand.py              # channel brand artifacts (icon/banner/watermark) — pass --channel <slug>
 ├── assets/
 │   ├── fonts/Inter-Bold.ttf      # SIL OFL — display + caption font (shared)
 │   ├── piper/                    # Piper voice models (downloaded on first /voice call)
-│   └── brand/                    # icon, banner, watermark outputs (per-channel)
-│       └── <slug>/icon_*.png     # 4 candidates from gen_brand.py
+│   └── brand/<slug>/             # per-channel icon/banner outputs from gen_brand.py
 └── secrets/                      # .gitignored — never committed
     ├── youtube_oauth.<slug>.json # OAuth Desktop Client per channel
     └── youtube_token.<slug>.json # refresh token (auto-refreshed by service)
@@ -286,6 +271,6 @@ for commercial-use compatibility, i.e. YouTube monetization is allowed):
 - **Piper voices (norman, john, bryce, joe)** — public domain / CC0 via their LibriVox / OHF-Voice training datasets. **Avoid** ryan/hfc/danny/kathleen variants (CC-BY-NC-SA via RyanSpeech / Hi-Fi Captain — the NC blocks YouTube monetization)
 - **Generated narration text and assembled video are your IP**
 
-YouTube also requires disclosing AI-altered/synthetic content via the
-"Altered or synthetic content" toggle in upload settings; do this for every
-upload.
+YouTube requires disclosing AI-altered/synthetic content. The pipeline sets
+`status.containsSyntheticMedia=true` on every upload automatically, driven by
+`ChannelConfig.ai_disclosure` (defaults to `true` for all channels).

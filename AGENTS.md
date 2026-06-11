@@ -87,10 +87,10 @@ works again.
 
 ### 2.7 n8n HTTP node hides the Body UI without `sendBody: true`
 
-When generating or editing `n8n/workflow.json`, every POST node must include
-`"sendBody": true` *and* `"contentType": "json"` *and* `"specifyBody": "json"`
-*and* `"jsonBody": "..."`. Missing `sendBody` collapses the body section in
-the UI and n8n sends nothing.
+When generating or editing the per-channel `n8n/workflows/<slug>.json`, every
+POST node must include `"sendBody": true` *and* `"contentType": "json"` *and*
+`"specifyBody": "json"` *and* `"jsonBody": "..."`. Missing `sendBody` collapses
+the body section in the UI and n8n sends nothing.
 
 ### 2.8 n8n IF nodes are strict about value types in v2
 
@@ -154,7 +154,8 @@ These are the high-impact files. Read carefully, change with intent.
 | File | What it controls | Test after editing |
 |---|---|---|
 | `channels/<slug>/prompts/script.md` | Output quality of the LLM for that channel. Image prompts, narration tone, sentence-level captions. Each channel has its own. | Regen one script (`curl -X POST /<slug>/script` with a `word_id`) and *read it* before any image gen. |
-| `channels/<slug>/channel.json` | Per-channel metadata — slug, display name, YouTube handle, default categories. Loaded at runtime by `api/channels.py`. | `curl /channels` to confirm the registry sees it. |
+| `channels/<slug>/channel.json` | Per-channel metadata — slug, display name, YouTube handle, default categories, and YouTube upload defaults (`youtube_category_id`, `youtube_default_language`, `youtube_default_audio_language`, `youtube_license`, `ai_disclosure`). Loaded at runtime by `api/channels.py`. | `curl /channels` to confirm the registry sees it. |
+| `api/services/youtube.py` | YouTube upload via Data API v3. Sets `categoryId`, `defaultLanguage`, `defaultAudioLanguage`, `containsSyntheticMedia`, `license`, `embeddable`, `publicStatsViewable`, `madeForKids`. Defaults flow from `ChannelConfig`; `UploadRequest` can override per-call. | Upload one video with `privacy: "private"`, then in Studio confirm category, language, and "Altered content" disclosure are set. |
 | `api/channels.py` | Channel registry (file-based). `load(slug)` resolves a `ChannelConfig`; `list_slugs()` discovers all channels at runtime. | Lookup an unknown slug — should 404 with a clear message. |
 | `api/models.py` (`Script`) | Schema the LLM must satisfy. Pydantic v2 validator enforces `image_idxs` permutation across beats. Shared across channels. | Round-trip a JSON through `Script.model_validate(...)`. |
 | `api/services/video.py` | ffmpeg filter graph. Easy to break the whole video silently — `-shortest` masks bugs. | Always extract frames at `t=1s`, `t=mid-beat`, `t=outro_start+0.5s` after a change. |
