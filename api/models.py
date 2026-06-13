@@ -15,6 +15,11 @@ from pydantic import BaseModel, Field, model_validator
 BeatLabel = Literal["hook", "origin", "payoff"]
 
 
+# Minimum number of DISTINCT images a Short must show across its beats. Hard
+# floor is 4; 5-7 is the recommended range (also the cap on image_prompts).
+MIN_IMAGES_USED = 4
+
+
 class Beat(BaseModel):
     label: BeatLabel
     narration: str = Field(min_length=10, max_length=600)
@@ -41,13 +46,37 @@ class Script(BaseModel):
 
     @model_validator(mode="after")
     def _validate_image_coverage(self) -> "Script":
-        """Every index in image_prompts must be referenced by exactly one beat."""
-        used = [idx for b in self.beats for idx in b.image_idxs]
+        """Validate image references without demanding a strict permutation.
+
+        Small local models rarely emit a perfect 1:1 mapping of beats to
+        prompts, so instead of the old "exact permutation of 0..n-1" rule we
+        enforce only the two invariants that actually matter downstream:
+
+        * Every referenced index is a real slot in image_prompts. Video
+          assembly looks images up by index, so an out-of-range idx would
+          crash a later stage.
+        * Beats collectively use at least MIN_IMAGES_USED distinct images
+          (4 minimum, 5-7 recommended) so a Short never renders on too few
+          visuals. image_prompts itself is capped at 4-7 entries.
+
+        Prompts may go unused (the orphan render is wasted, not fatal) and an
+        image may repeat across beats - neither is rejected here.
+        """
         n = len(self.image_prompts)
-        if sorted(used) != list(range(n)):
+        used = [idx for b in self.beats for idx in b.image_idxs]
+
+        out_of_range = sorted({idx for idx in used if not 0 <= idx < n})
+        if out_of_range:
             raise ValueError(
-                f"image_idxs across beats must be a permutation of 0..{n-1}, "
-                f"got {sorted(used)}"
+                f"image_idxs reference non-existent prompts {out_of_range}; "
+                f"valid range is 0..{n-1}"
+            )
+
+        distinct = len(set(used))
+        if distinct < MIN_IMAGES_USED:
+            raise ValueError(
+                f"beats use only {distinct} distinct image(s); need at least "
+                f"{MIN_IMAGES_USED} (5-7 recommended), got {sorted(set(used))}"
             )
         return self
 

@@ -36,3 +36,6 @@ dependencies = [
 package = false
 # Allow prereleases; mflux moves fast on Apple Silicon
 prerelease = "allow"
+
+[dependency-groups]
+dev = ["pytest>=8"]
