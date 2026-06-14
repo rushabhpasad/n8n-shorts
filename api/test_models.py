@@ -1,9 +1,15 @@
-"""Tests for the Script schema — focused on image-index coverage rules."""
+"""Tests for the Script schema — image prompts are embedded per beat.
+
+Each beat carries its own ordered `images` (diffusion prompts). The flat
+`Script.image_prompts` sequence is derived from the beats in order, so prompts
+and the images actually shown can never drift out of sync (no orphan renders,
+no dangling indices). These tests pin that contract.
+"""
 
 import pytest
 from pydantic import ValidationError
 
-from models import Beat, Script, YouTubeMeta
+from models import MAX_IMAGES_TOTAL, MIN_IMAGES_TOTAL, Beat, Script, YouTubeMeta
 
 
 def _youtube() -> YouTubeMeta:
@@ -14,13 +20,17 @@ def _youtube() -> YouTubeMeta:
     )
 
 
-def _script(idxs: list[list[int]], n_prompts: int) -> Script:
-    """Build a Script with the three beats carrying the given image_idxs and
-    `n_prompts` image prompts. Raises ValidationError if the schema rejects it."""
+def _script(images_per_beat: list[list[str]]) -> Script:
+    """Build a Script whose three beats carry the given image prompts.
+    Raises ValidationError if the schema rejects it."""
     labels = ("hook", "origin", "payoff")
     beats = [
-        Beat(label=labels[i], narration=f"{labels[i]} narration text.",
-             on_screen=labels[i].title(), image_idxs=idxs[i])
+        Beat(
+            label=labels[i],
+            narration=f"{labels[i]} narration text.",
+            on_screen=labels[i].title(),
+            images=images_per_beat[i],
+        )
         for i in range(3)
     ]
     return Script(
@@ -29,34 +39,40 @@ def _script(idxs: list[list[int]], n_prompts: int) -> Script:
         title_text="DYATLOV PASS",
         tagline="A cold case.",
         beats=beats,
-        image_prompts=[f"prompt {i}" for i in range(n_prompts)],
         youtube=_youtube(),
     )
 
 
-def test_orphan_prompt_is_allowed():
-    # 6 prompts generated, only indices 0..4 referenced (index 5 orphaned).
-    # The old strict-permutation rule rejected this; the relaxed rule accepts it.
-    script = _script([[0, 1], [2, 3], [4]], n_prompts=6)
-    assert len(script.image_prompts) == 6
+def test_image_prompts_flattens_beats_in_order():
+    script = _script([["a"], ["b", "c"], ["d"]])
+    assert script.image_prompts == ["a", "b", "c", "d"]
 
 
-def test_repeated_index_is_allowed():
-    # An image may appear in more than one beat.
-    script = _script([[0, 1], [2, 3], [0]], n_prompts=4)
-    assert script is not None
+def test_minimum_total_images_is_ok():
+    script = _script([["a"], ["b"], ["c", "d"]])
+    assert len(script.image_prompts) == MIN_IMAGES_TOTAL == 4
 
 
-def test_exactly_four_distinct_is_ok():
-    script = _script([[0, 1], [2], [3]], n_prompts=4)
-    assert len({i for b in script.beats for i in b.image_idxs}) == 4
+def test_maximum_total_images_is_ok():
+    script = _script([["a", "b", "c"], ["d", "e"], ["f", "g"]])
+    assert len(script.image_prompts) == MAX_IMAGES_TOTAL == 7
 
 
-def test_fewer_than_four_distinct_is_rejected():
-    with pytest.raises(ValidationError, match="distinct"):
-        _script([[0], [1], [2]], n_prompts=4)
+def test_fewer_than_minimum_total_is_rejected():
+    with pytest.raises(ValidationError, match="at least"):
+        _script([["a"], ["b"], ["c"]])  # 3 total
 
 
-def test_out_of_range_index_is_rejected():
-    with pytest.raises(ValidationError, match="non-existent"):
-        _script([[0, 1], [2, 3], [9]], n_prompts=4)
+def test_more_than_maximum_total_is_rejected():
+    with pytest.raises(ValidationError, match="at most"):
+        _script([["a", "b", "c"], ["d", "e", "f"], ["g", "h"]])  # 8 total
+
+
+def test_beat_with_no_images_is_rejected():
+    with pytest.raises(ValidationError):
+        _script([[], ["a", "b"], ["c", "d"]])
+
+
+def test_beat_with_more_than_four_images_is_rejected():
+    with pytest.raises(ValidationError):
+        _script([["a", "b", "c", "d", "e"], ["f"], ["g"]])

@@ -58,25 +58,20 @@ Return **only** a single JSON object, no prose, no markdown fences. Schema:
       "label": "hook",
       "narration": "<spoken text, 5–10s at normal pace>",
       "on_screen": "<2–6 word caption (legacy/back-compat — keep it punchy)>",
-      "image_idxs": [<indices into image_prompts, 1–2 entries>]
+      "images": ["<image prompt — see image-prompt rules>", "..."]
     },
     {
       "label": "origin",
       "narration": "<spoken text, 18–28s>",
       "on_screen": "<2–6 word caption>",
-      "image_idxs": [<indices into image_prompts, 2–3 entries>]
+      "images": ["<image prompt>", "<image prompt>", "..."]
     },
     {
       "label": "payoff",
       "narration": "<spoken text, 5–10s>",
       "on_screen": "<2–6 word caption>",
-      "image_idxs": [<indices into image_prompts, 1–2 entries>]
+      "images": ["<image prompt>", "..."]
     }
-  ],
-  "image_prompts": [
-    "<Flux/diffusion prompt 0 — see image-prompt rules>",
-    "<Flux/diffusion prompt 1>",
-    "..."
   ],
   "youtube": {
     "title": "<55–70 chars, ends with #shorts; include the subject or species>",
@@ -93,12 +88,15 @@ channel has a consistent painterly look AND each image actually carries the
 finding's specific story instead of vague animal portraiture.
 
 **Quantity & allocation:**
-- Emit **5–7 image prompts total** (target 6).
-- Allocate across beats:
+- Each beat's `images` array holds that beat's diffusion prompts, played in
+  order over equal-duration sub-segments of the beat.
+- Allocate per beat:
   - hook → 1–2 prompts
   - origin → 2–3 prompts
   - payoff → 1–2 prompts
-- The union of all `image_idxs` across beats must equal {0, 1, ..., len(image_prompts)-1} exactly once — no skipped indices, no duplicates.
+- **Total across all three beats: 4–7 prompts (5–6 recommended).**
+- Every prompt you write is rendered and shown — there are no spare or unused
+  prompts. Only include images the narration in that beat actually needs.
 
 **Style anchor (must lead every prompt with these exact words):**
 
@@ -181,16 +179,39 @@ pronunciation: african grey parrot
 hook: Studied by Irene Pepperberg from 1977 to 2007 at Brandeis; Alex learned over 100 words and used 'none' to indicate zero — the first non-human animal documented to grasp the concept of nothingness as a number.
 ```
 
-## Good example image_prompts (for alex the african grey, illustrating the specificity floor)
+## Good example beats + images (for alex the african grey, illustrating the specificity floor)
 
-0. painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, an African grey parrot perched on a wooden T-stand inside Irene Pepperberg's 1980s Brandeis cognition lab, head tilted toward a tray of coloured wooden blocks, the bird mid-vocalization, warm afternoon window light, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks
+Six prompts total — hook 1, origin 3, payoff 2 — each living in its beat's
+`images` array. Every prompt is shown; none are spare.
 
-1. painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, a researcher's hand (back of hand only, no face) in the 1980s Brandeis lab holding out a wooden tray with three coloured felt squares — red, blue, green — toward an attentive African grey parrot, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks
-
-2. painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, the same African grey parrot in the 1980s Brandeis lab leaning forward toward an empty wooden tray, beak slightly open mid-utterance, soft window light catching the grey feathers, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks
-
-3. painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, a handwritten 1980s laboratory notebook open on a wooden bench in the Brandeis lab, columns of trial data and the word 'none' circled in pencil beside a parrot's perch in the background, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks
-
-4. painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, the African grey parrot stepping along its wooden perch in the Brandeis lab toward a final tray of objects, late evening lab light, the trays empty except for one blue key, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks
-
-5. painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, an empty African grey parrot perch in a quiet lab room at dusk, a single grey feather on the wooden bench beside a closed notebook, the implication of absence rendered as warmth not melancholy, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks
+```json
+"beats": [
+  {
+    "label": "hook",
+    "narration": "...",
+    "on_screen": "Alex, 1977",
+    "images": [
+      "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, an African grey parrot perched on a wooden T-stand inside Irene Pepperberg's 1980s Brandeis cognition lab, head tilted toward a tray of coloured wooden blocks, the bird mid-vocalization, warm afternoon window light, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks"
+    ]
+  },
+  {
+    "label": "origin",
+    "narration": "...",
+    "on_screen": "What the Study Showed",
+    "images": [
+      "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, a researcher's hand (back of hand only, no face) in the 1980s Brandeis lab holding out a wooden tray with three coloured felt squares — red, blue, green — toward an attentive African grey parrot, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks",
+      "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, the same African grey parrot in the 1980s Brandeis lab leaning forward toward an empty wooden tray, beak slightly open mid-utterance, soft window light catching the grey feathers, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks",
+      "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, a handwritten 1980s laboratory notebook open on a wooden bench in the Brandeis lab, columns of trial data and the word 'none' circled in pencil beside a parrot's perch in the background, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks"
+    ]
+  },
+  {
+    "label": "payoff",
+    "narration": "...",
+    "on_screen": "The Line We Drew Wrong",
+    "images": [
+      "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, the African grey parrot stepping along its wooden perch in the Brandeis lab toward a final tray of objects, late evening lab light, the trays empty except for one blue key, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks",
+      "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, an empty African grey parrot perch in a quiet lab room at dusk, a single grey feather on the wooden bench beside a closed notebook, the implication of absence rendered as warmth not melancholy, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks"
+    ]
+  }
+]
+```

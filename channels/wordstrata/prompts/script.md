@@ -41,25 +41,20 @@ Return **only** a single JSON object, no prose, no markdown fences. Schema:
       "label": "hook",
       "narration": "<spoken text, 5–10s at normal pace>",
       "on_screen": "<2–6 word caption (legacy/back-compat — keep it punchy)>",
-      "image_idxs": [<indices into image_prompts, 1–2 entries>]
+      "images": ["<image prompt — see image-prompt rules>", "..."]
     },
     {
       "label": "origin",
       "narration": "<spoken text, 18–28s>",
       "on_screen": "<2–6 word caption>",
-      "image_idxs": [<indices into image_prompts, 2–3 entries>]
+      "images": ["<image prompt>", "<image prompt>", "..."]
     },
     {
       "label": "payoff",
       "narration": "<spoken text, 5–10s>",
       "on_screen": "<2–6 word caption>",
-      "image_idxs": [<indices into image_prompts, 1–2 entries>]
+      "images": ["<image prompt>", "..."]
     }
-  ],
-  "image_prompts": [
-    "<Flux/diffusion prompt 0 — see image-prompt rules>",
-    "<Flux/diffusion prompt 1>",
-    "..."
   ],
   "youtube": {
     "title": "<55–70 chars, ends with #shorts; include the word>",
@@ -76,12 +71,15 @@ channel has a consistent painterly look AND each image actually carries the
 word's specific story instead of vague mood.
 
 **Quantity & allocation:**
-- Emit **5–7 image prompts total** (target 6).
-- Allocate across beats:
+- Each beat's `images` array holds that beat's diffusion prompts, played in
+  order over equal-duration sub-segments of the beat.
+- Allocate per beat:
   - hook → 1–2 prompts
   - origin → 2–3 prompts
   - payoff → 1–2 prompts
-- The union of all `image_idxs` across beats must equal {0, 1, ..., len(image_prompts)-1} exactly once — no skipped indices, no duplicates.
+- **Total across all three beats: 4–7 prompts (5–6 recommended).**
+- Every prompt you write is rendered and shown — there are no spare or unused
+  prompts. Only include images the narration in that beat actually needs.
 
 **Style anchor (must lead every prompt with these exact words):**
 
@@ -147,16 +145,39 @@ origin_language: greek
 hook: Coined in 1688 by a Swiss medical student to describe homesick mercenary soldiers; from nostos (return) + algos (pain).
 ```
 
-## Good example image_prompts (for nostalgia, illustrating the specificity floor)
+## Good example beats + images (for nostalgia, illustrating the specificity floor)
 
-0. painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, a young 17th century Swiss mercenary soldier sitting alone on a stone wall outside an alpine barracks at dusk, his rifle leaned beside him, head bowed, reading a folded letter, distant snow-capped mountains beyond, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks
+Six prompts total — hook 1, origin 3, payoff 2 — each living in its beat's
+`images` array. Every prompt is shown; none are spare.
 
-1. painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, a column of 17th century mercenary soldiers in dirty wool coats trudging through an alpine pass at sunrise, viewed from behind, their breath visible in cold air, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks
-
-2. painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, a 1688 Swiss medical student in dark robes hunched over a candlelit writing desk in a university library, dipping a quill into ink to write the word nostalgia in a leather journal, anatomical drawings pinned to the wall behind him, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks
-
-3. painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, the same young soldier from prompt 0 now lying motionless on a wooden infirmary cot in candlelight, eyes open and staring, a 17th century physician in dark coat taking his pulse, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks
-
-4. painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, an open 17th century leather journal on a wooden desk with two Greek words written in faded ink — nostos and algos — beside an inkwell and quill, warm candle glow, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks
-
-5. painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, a modern young person in a cafe window seat at dusk staring out at a foreign city skyline, holding a half-finished coffee, the same warm candlelit mood as the historical scenes, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks
+```json
+"beats": [
+  {
+    "label": "hook",
+    "narration": "...",
+    "on_screen": "Nostalgia, 1688",
+    "images": [
+      "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, a young 17th century Swiss mercenary soldier sitting alone on a stone wall outside an alpine barracks at dusk, his rifle leaned beside him, head bowed, reading a folded letter, distant snow-capped mountains beyond, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks"
+    ]
+  },
+  {
+    "label": "origin",
+    "narration": "...",
+    "on_screen": "A Medical Diagnosis",
+    "images": [
+      "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, a column of 17th century mercenary soldiers in dirty wool coats trudging through an alpine pass at sunrise, viewed from behind, their breath visible in cold air, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks",
+      "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, a 1688 Swiss medical student in dark robes hunched over a candlelit writing desk in a university library, dipping a quill into ink to write the word nostalgia in a leather journal, anatomical drawings pinned to the wall behind him, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks",
+      "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, the same young soldier from prompt 0 now lying motionless on a wooden infirmary cot in candlelight, eyes open and staring, a 17th century physician in dark coat taking his pulse, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks"
+    ]
+  },
+  {
+    "label": "payoff",
+    "narration": "...",
+    "on_screen": "The Word We Kept",
+    "images": [
+      "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, an open 17th century leather journal on a wooden desk with two Greek words written in faded ink — nostos and algos — beside an inkwell and quill, warm candle glow, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks",
+      "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, a modern young person in a cafe window seat at dusk staring out at a foreign city skyline, holding a half-finished coffee, the same warm candlelit mood as the historical scenes, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks"
+    ]
+  }
+]
+```
