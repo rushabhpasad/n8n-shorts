@@ -181,8 +181,6 @@ def test_build_daily_report_isolates_channel_failure(monkeypatch):
 
 
 def test_analytics_daily_endpoint(monkeypatch):
-    import sys
-    sys.path.insert(0, "api")
     from fastapi.testclient import TestClient
     import main
     from models import DailyAnalyticsReport
@@ -197,3 +195,12 @@ def test_analytics_daily_endpoint(monkeypatch):
     resp = client.get("/analytics/daily?days=30")
     assert resp.status_code == 200
     assert resp.json()["date"] == "2026-06-14"
+
+
+def test_analytics_channel_unknown_returns_404():
+    import main
+    from fastapi.testclient import TestClient
+
+    client = TestClient(main.app)
+    resp = client.get("/definitely-not-a-channel/analytics")
+    assert resp.status_code == 404
