@@ -98,3 +98,37 @@ def per_video(channel: str, video_ids: list[str], *, client=None) -> list[VideoA
                 comments=int(st.get("commentCount", 0)),
             ))
     return out
+
+
+def channel_analytics(
+    channel: str,
+    days: int = 30,
+    *,
+    today: date | None = None,
+    data_client=None,
+    analytics_client=None,
+) -> ChannelAnalytics:
+    today = today or date.today()
+    end = today.isoformat()
+    start = (today - timedelta(days=days - 1)).isoformat()
+    yesterday = (today - timedelta(days=1)).isoformat()
+
+    snapshot = channel_snapshot(channel, client=data_client)
+    period = period_metrics(channel, start, end, client=analytics_client)
+    one_day = period_metrics(channel, yesterday, yesterday, client=analytics_client)
+    videos = per_video(channel, db.uploaded_video_ids(channel), client=data_client)
+
+    n = len(videos)
+    avg_likes = round(sum(v.likes for v in videos) / n, 1) if n else 0.0
+    avg_comments = round(sum(v.comments for v in videos) / n, 1) if n else 0.0
+
+    return ChannelAnalytics(
+        channel=channel,
+        snapshot=snapshot,
+        new_subs_1d=one_day.new_subscribers,
+        period=period,
+        videos_uploaded=n,
+        avg_likes_per_video=avg_likes,
+        avg_comments_per_video=avg_comments,
+        videos=videos,
+    )

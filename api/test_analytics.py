@@ -94,3 +94,54 @@ def test_per_video_parses_statistics():
     vids = analytics.per_video("wordstrata", ["v1", "v2"], client=client)
     assert [v.video_id for v in vids] == ["v1", "v2"]
     assert (vids[0].likes, vids[0].comments, vids[0].views) == (14, 4, 100)
+
+
+def test_channel_analytics_rolls_up(monkeypatch):
+    from services import analytics
+    data = MagicMock()
+    data.channels.return_value.list.return_value.execute.return_value = {
+        "items": [{"statistics": {
+            "subscriberCount": "1204", "viewCount": "55000", "videoCount": "32"}}]
+    }
+    data.videos.return_value.list.return_value.execute.return_value = {
+        "items": [
+            {"id": "v1", "statistics": {"viewCount": "100", "likeCount": "14", "commentCount": "4"}},
+            {"id": "v2", "statistics": {"viewCount": "40", "likeCount": "6", "commentCount": "2"}},
+        ]
+    }
+    ya = MagicMock()
+    ya.reports.return_value.query.return_value.execute.return_value = {
+        "rows": [[210, 10, 3420, 8000, 450, 96, 41]]
+    }
+    monkeypatch.setattr(analytics.db, "uploaded_video_ids", lambda ch: ["v1", "v2"])
+
+    ca = analytics.channel_analytics(
+        "wordstrata", days=30, today=date(2026, 6, 14),
+        data_client=data, analytics_client=ya,
+    )
+    assert ca.snapshot.subscribers == 1204
+    assert ca.videos_uploaded == 2
+    assert ca.avg_likes_per_video == 10.0     # (14+6)/2
+    assert ca.avg_comments_per_video == 3.0   # (4+2)/2
+    assert ca.period.new_subscribers == 200
+    assert ca.new_subs_1d == 200              # 1-day query reuses mocked rows
+    assert ca.period.days == 30
+
+
+def test_channel_analytics_empty_channel(monkeypatch):
+    from services import analytics
+    data = MagicMock()
+    data.channels.return_value.list.return_value.execute.return_value = {
+        "items": [{"statistics": {"subscriberCount": "0", "viewCount": "0", "videoCount": "0"}}]
+    }
+    ya = MagicMock()
+    ya.reports.return_value.query.return_value.execute.return_value = {}
+    monkeypatch.setattr(analytics.db, "uploaded_video_ids", lambda ch: [])
+
+    ca = analytics.channel_analytics(
+        "wordstrata", days=30, today=date(2026, 6, 14),
+        data_client=data, analytics_client=ya,
+    )
+    assert ca.videos_uploaded == 0
+    assert ca.avg_likes_per_video == 0.0
+    assert ca.videos == []
