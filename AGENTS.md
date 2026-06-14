@@ -20,25 +20,30 @@ cd api && nohup uv run uvicorn main:app --host 0.0.0.0 --port 7860 \
 sleep 6 && curl -sS --max-time 3 http://localhost:7860/health | jq .status
 ```
 
-**Important: restarting drops the Z-Image-Turbo model from memory.** The next
-`/image` call has to reload it from disk cache (~30 s). Avoid restarting in
-the middle of an in-flight image-gen run — both the request and the cached
-model are lost.
+**With the default `space` backend, the Z-Image-Turbo model is NOT loaded
+locally**, so restarts have no model-reload cost. The ~30 s reload note applies
+only when the mflux fallback has fired during the session (the model is
+lazy-loaded on first fallback and stays resident until the process exits).
+Avoid restarting in the middle of an in-flight image-gen run regardless of
+backend — the in-progress request is lost.
 
 If you're iterating on `services/video.py` only, `/assemble` doesn't need the
 model loaded; the restart cost is negligible.
 
 ## 2. Landmines (in rough order of how often they bite)
 
-### 2.1 `mflux` `ImageUtil.save_image` auto-renames if the file exists
+### 2.1 `mflux` `ImageUtil.save_image` auto-renames if the file exists — FIXED
 
-If `word_0002_0.png` already exists from a previous run, `save_image` saves
-the new image as `word_0002_0_1.png` instead of overwriting. `/assemble`
-then picks up the *old* `word_0002_0.png` and you get a Frankenstein video
+If `word_0002_0.png` already exists from a previous run, `save_image` would
+save the new image as `word_0002_0_1.png` instead of overwriting. `/assemble`
+would then pick up the *old* `word_0002_0.png` and produce a Frankenstein video
 (new audio, old images).
 
-**Fix when you touch `services/image.py`:** call `out_path.unlink(missing_ok=True)`
-*before* `ImageUtil.save_image(...)`. Pending TODO.
+**Fixed:** `services/image.py` now has `_clear_stale_images(output_dir, word_id)`
+which deletes all `word_<id>_*.png` files at the start of every `generate_images`
+call — before any render begins. This also handles the case where a regenerated
+script produces a different image count than a prior run (old renders no longer
+linger on disk).
 
 ### 2.2 Homebrew `ffmpeg` lacks libfreetype → no `drawtext`
 
@@ -109,12 +114,18 @@ this by switching to `z-image-turbo` (Tongyi-MAI, fully open). If you need
 to switch back, set `HF_TOKEN` env var, accept the licence on the HF page in
 a browser first.
 
+`HF_TOKEN` is **also** the primary auth token for the hosted Z-Image-Turbo
+Gradio Space (`image_backend = "space"`). Anonymous Space calls get ~2 min
+ZeroGPU GPU/day; a free HF account with `HF_TOKEN` set gets ~3.5–5 min/day
+(enough for 2–3 of the 4 channels); an HF Pro account gets ~8× that, covering
+all four. Set it in `api/.env` (gitignored). The mflux fallback absorbs any
+quota overflow automatically.
+
 ### 2.10 Piper voice licences matter for monetised YouTube
 
 `settings.piper_voices` is a **list** of voices the `/voice` endpoint
 shuffles uniformly at random per call. All must be commercial-use-OK:
 
-- `en_US-norman-medium` — LibriVox public domain
 - `en_US-john-medium`   — LibriVox public domain
 - `en_US-bryce-medium`  — public domain (own recording)
 - `en_US-joe-medium`    — CC0 (OHF-Voice)
@@ -144,8 +155,39 @@ download function in the project should use the same pattern.
 ### 2.12 9B+ image models are unworkable on Apple Silicon
 
 Qwen-Image and FLUX.2-klein-9B benchmarked at ~40 s/step × 25 steps × 5
-images ≈ 50 min/video on an M1 Max. Stick with Z-Image-Turbo (8 steps × 30 s
-= ~4 min/image, ~20 min/video) unless you have a much faster machine.
+images ≈ 50 min/video on an M1 Max. Z-Image-Turbo via the hosted Space backend
+takes ~12 s/image (ZeroGPU, zero local RAM), giving roughly 1–2 min of image
+generation per video in normal operation. The mflux local fallback path is
+significantly slower: ~5 min/image on an M1 Max (the z-image-turbo transformer
+is ~23 GB; a single 768×1344 render requires ~28 GB unified memory and thrashes
+the macOS compressor on a 32 GB machine). Stick with the `space` backend unless
+you're debugging or have no network.
+
+### 2.13 Image backend: hosted Space (default) vs. local mflux
+
+`api/config.py` `image_backend` controls which path `services/image.py` takes:
+
+- **`"space"` (default)** — calls the hosted Z-Image-Turbo Gradio Space on
+  Hugging Face (`zimage_space_url`, default `https://mrfakename-z-image-turbo.hf.space`).
+  Free ZeroGPU; ~12 s/image; zero local RAM. Per-image automatic fallback to
+  local mflux on ANY failure (GPU quota exceeded, network error, server error),
+  so a run always completes even when the Space is unavailable.
+- **`"mflux"`** — local MLX generation only. Use when you want deterministic
+  local runs or are offline.
+
+The local mflux model is **lazy-loaded only when a fallback actually fires**
+(`_get_model()` in `image.py`). The `space` path never pays the ~28 GB
+unified-memory cost unless it has to.
+
+Relevant config knobs (all in `api/config.py`, env-overridable):
+
+| Setting | Default | Notes |
+|---|---|---|
+| `image_backend` | `"space"` | `"space"` or `"mflux"` |
+| `zimage_space_url` | `https://mrfakename-z-image-turbo.hf.space` | Gradio Space endpoint |
+| `zimage_space_timeout_s` | `180` | Per-image Space call timeout |
+| `hf_token` | `None` | Set via `HF_TOKEN` in `api/.env`; raises ZeroGPU quota |
+| `mflux_cache_limit_bytes` | `1 GiB` | Caps MLX GPU-buffer cache; `mx.clear_cache()` called between mflux renders |
 
 ## 3. Files where the most damage happens
 
@@ -157,7 +199,7 @@ These are the high-impact files. Read carefully, change with intent.
 | `channels/<slug>/channel.json` | Per-channel metadata — slug, display name, YouTube handle, default categories, and YouTube upload defaults (`youtube_category_id`, `youtube_default_language`, `youtube_default_audio_language`, `youtube_license`, `ai_disclosure`). Loaded at runtime by `api/channels.py`. | `curl /channels` to confirm the registry sees it. |
 | `api/services/youtube.py` | YouTube upload via Data API v3. Sets `categoryId`, `defaultLanguage`, `defaultAudioLanguage`, `containsSyntheticMedia`, `license`, `embeddable`, `publicStatsViewable`, `madeForKids`. Defaults flow from `ChannelConfig`; `UploadRequest` can override per-call. | Upload one video with `privacy: "private"`, then in Studio confirm category, language, and "Altered content" disclosure are set. |
 | `api/channels.py` | Channel registry (file-based). `load(slug)` resolves a `ChannelConfig`; `list_slugs()` discovers all channels at runtime. | Lookup an unknown slug — should 404 with a clear message. |
-| `api/models.py` (`Script`) | Schema the LLM must satisfy. Pydantic v2 validator enforces `image_idxs` permutation across beats. Shared across channels. | Round-trip a JSON through `Script.model_validate(...)`. |
+| `api/models.py` (`Script`) | Schema the LLM must satisfy. Each `Beat` carries `images: list[str]` (1–4 diffusion prompts). `Script.image_prompts` is a computed property that flattens every beat's `images` in order — the rest of the pipeline reads this property, so generated images and shown images are always 1:1 by construction. A `model_validator` enforces the total image count is 4–7 (`MIN_IMAGES_TOTAL=4`, `MAX_IMAGES_TOTAL=7`). No index pool, no permutation rule; orphan/unused prompts are structurally impossible. | Round-trip a JSON through `Script.model_validate(...)`. |
 | `api/services/video.py` | ffmpeg filter graph. Easy to break the whole video silently — `-shortest` masks bugs. | Always extract frames at `t=1s`, `t=mid-beat`, `t=outro_start+0.5s` after a change. |
 | `api/config.py` | All runtime knobs. Pydantic-settings; env-overridable. Helpers `channel_data_dir()`, `youtube_oauth_path(channel)`, `youtube_token_path(channel)` resolve channel-scoped paths. | Health check (`/health`) shows current values + the channels list. |
 | `n8n/generate.py` | Per-channel workflow generator. Reads every `channels/<slug>/channel.json` and writes `n8n/workflows/<slug>.json`. | Run, then re-import each workflow into n8n. |
@@ -179,11 +221,19 @@ These are the high-impact files. Read carefully, change with intent.
 
 ## 5. How to test changes
 
-There is **no test suite**. The pipeline is too multi-process for unit tests
-to be high-leverage. Acceptance is empirical:
+There is a small unit-test suite covering the core schema and image-cleanup
+logic: `api/test_models.py` (Script schema validation) and `api/test_image.py`
+(`_clear_stale_images`). Run them via:
+
+```bash
+api/.venv/bin/python -m pytest api/test_models.py api/test_image.py
+```
+
+Integration testing remains empirical — the pipeline is too multi-process for
+unit tests to be high-leverage end-to-end:
 
 1. **`/script` change**: regen one word, paste the JSON, eyeball it.
-2. **`/image` change**: regen one word's images (~20 min), open the 5 PNGs.
+2. **`/image` change**: regen one word's images (~1–2 min via Space backend), open the PNGs.
 3. **`/voice` change**: regen one WAV, play in QuickTime, listen for emoji/markdown bleed-through.
 4. **`/assemble` change**: regen one video, extract frames at every beat boundary + outro start, inspect captions and image transitions.
 5. **`/upload` change**: trigger with `privacy: "private"`, check it lands in Studio.
@@ -224,6 +274,5 @@ The pipeline is feature-complete for daily Shorts on four channels (Wordstrata, 
 3. **Per-channel brand assets — partial**: `brand.json` + `gen_brand.py` exist for the three new channels (icon candidates only). Still pending: per-channel outro card / watermark, banner generator (2048×1152), and brand assets for `wordstrata` (currently uses a hand-designed icon).
 4. **Whisper-based forced alignment** to make sentence captions tightly word-sync'd — currently captions are word-count-proportional within each beat, which trails the audio by ~200–400 ms.
 5. **Long-form companion pipeline** — 10–15 min mini-docs sharing the same words queue and audio/image infra, but with different script and video assembly.
-6. **`mflux` overwrite-fix** in `services/image.py` (one-liner — see §2.1).
 
 Don't add: feature flags, retry/backoff infra, k8s manifests, generic abstraction layers. This is a single-machine pipeline; over-architecting is the failure mode.
