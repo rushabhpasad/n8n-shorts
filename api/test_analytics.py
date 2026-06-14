@@ -6,8 +6,6 @@ All Google API calls are mocked — no network, no credentials needed.
 from datetime import date
 from unittest.mock import MagicMock
 
-import pytest
-
 
 def test_oauth_scopes_include_analytics_read():
     from services import youtube
