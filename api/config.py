@@ -38,6 +38,11 @@ class Settings(BaseSettings):
     mflux_width: int = Field(default=768)
     mflux_height: int = Field(default=1344)
     mflux_seed_base: int = Field(default=42)
+    # MLX retains freed GPU buffers in an unbounded cache by default, so a
+    # sequential multi-image run balloons unified-memory use (~28GB observed
+    # for a 7-image short) and thrashes the compressor. Cap the cache and we
+    # clear it between images in image.py. 1 GiB is plenty of reuse headroom.
+    mflux_cache_limit_bytes: int = Field(default=1024**3)
 
     # Piper TTS — pool of voices; /voice picks one uniformly at random per call.
     # All listed voices must be commercial-use-OK (LibriVox public-domain, CC0,

@@ -60,15 +60,45 @@ def warmup() -> dict:
     }
 
 
+def _clear_stale_images(output_dir: Path, word_id: int) -> int:
+    """Remove pre-existing word_<id>_*.png before a re-run.
+
+    A regenerated script can produce a different image count than a prior run
+    (the new per-beat schema makes this common), so old renders would otherwise
+    linger on disk — confusing to debug and wasted space. Returns the count
+    removed. Only touches this word's PNGs; other files are left alone.
+    """
+    removed = 0
+    for p in output_dir.glob(f"word_{word_id:04d}_*.png"):
+        p.unlink()
+        removed += 1
+    return removed
+
+
 def generate_images(script: Script, output_dir: Path, word_id: int) -> list[dict]:
-    """Generate len(script.image_prompts) PNGs (5–7) into output_dir."""
+    """Generate len(script.image_prompts) PNGs (4–7) into output_dir."""
     n = len(script.image_prompts)
     if n < 1:
         raise ValueError("script has no image_prompts")
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    stale = _clear_stale_images(output_dir, word_id)
+    if stale:
+        log.info("cleared %d stale image(s) for word_id=%d", stale, word_id)
+
     model = _get_model()
+
+    import gc
+
+    import mlx.core as mx
     from mflux.utils.image_util import ImageUtil
+
+    # MLX keeps an unbounded buffer cache by default, so a sequential N-image
+    # run accumulates freed GPU buffers and balloons unified-memory use (~28GB
+    # observed), thrashing the compressor. Cap the cache and clear it between
+    # images so the footprint stays near the resident model size.
+    mx.set_cache_limit(settings.mflux_cache_limit_bytes)
+    mx.reset_peak_memory()
 
     results: list[dict] = []
     for i, prompt in enumerate(script.image_prompts):
@@ -104,4 +134,13 @@ def generate_images(script: Script, output_dir: Path, word_id: int) -> list[dict
             "size_bytes": out_path.stat().st_size,
         })
 
+        # Return this image's buffers to the OS before the next diffusion pass.
+        del image
+        gc.collect()
+        mx.clear_cache()
+
+    log.info(
+        "image gen done: %d images, peak MLX memory %.2f GB",
+        n, mx.get_peak_memory() / 1e9,
+    )
     return results
