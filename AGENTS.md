@@ -285,8 +285,9 @@ enabled in each channel's Google Cloud project.
   filling credentials and IDs (see README setup steps).
 - **Schedule:** 06:00 daily — after the four upload workflows (01:00–04:00).
 - **Fan-out:** (a) splits to 4 rows → appends to a Google Sheets `daily` tab
-  via Google Service Account credential; (b) formats a Telegram digest → sends
-  via Telegram bot. An HTTP-error branch sends a Telegram failure alert.
+  via Google Service Account credential; (b) formats a digest → sends to both
+  Telegram and Slack. An HTTP-error branch sends a failure alert to both
+  Telegram and Slack.
 
 ## 7. State and audit
 
@@ -314,7 +315,93 @@ secrets/youtube_token.<channel>.json
 
 The `word_` prefix in filenames is purely historical — it stays the same across all channels (mythology, animals, etc.) so the existing assemble/upload path expectations keep working.
 
-## 8. Future direction
+## 8. Notifications (Telegram + Slack)
+
+All four pipeline workflows and the Analytics Digest send notifications to both
+Telegram and Slack. Here is everything an agent needs to know to work on or
+debug notifications.
+
+### Live workflows and what they emit
+
+| Workflow | Success signal | Error signal |
+|---|---|---|
+| Per-channel pipeline (×4) | "Notify success" (Telegram) + "Notify success (Slack)" nodes — fire after the YouTube upload step | "Pipeline Error Alert" workflow triggered by n8n Error Workflow setting |
+| "Daily Analytics Digest" | Digest posted to Telegram + Slack | HTTP-error branch posts failure alert to Telegram + Slack |
+
+### Shared "Pipeline Error Alert" workflow
+
+An Error Trigger → Telegram + Slack workflow. It is the **Error Workflow** for
+all four pipeline workflows. Wired in each workflow's **Settings → Error
+Workflow** field. This catches any unhandled pipeline failure and posts a ❌
+alert to both channels.
+
+**Critical gotcha — import drops `errorWorkflow`:** n8n's workflow import (API
+and UI) silently discards the `settings.errorWorkflow` field. After importing or
+recreating any pipeline workflow you **must** manually re-set
+**Settings → Error Workflow → "Pipeline Error Alert"** in the n8n UI. No import
+or regeneration step can substitute for this; it must be done in the UI.
+
+### Credential and identifier constants
+
+| Destination | Identifier | n8n credential name |
+|---|---|---|
+| Telegram | chat ID `3819613` | "Telegram account" |
+| Slack | channel `C0BBAB1G588` | "Slack account" |
+
+These are constants in `n8n/generate.py` (`TELEGRAM_CHAT_ID`, `SLACK_CHANNEL`).
+Neither is a secret — they are channel/chat identifiers only.
+
+### `n8n/generate.py` emits notifications
+
+`generate.py` emits both the Telegram and Slack success-notification nodes and
+the `errorWorkflow` setting into each generated `n8n/workflows/<slug>.json`.
+Regenerated workflow JSON therefore already carries the notification wiring —
+the only post-import manual step is re-setting Error Workflow in the UI (see
+gotcha above).
+
+## 9. Workflow backup ("Backup Workflows to Git")
+
+A scheduled n8n workflow commits all workflow definitions daily to a private
+repo. Key facts for anyone modifying the backup workflow or its dependencies.
+
+### Operational summary
+
+| Property | Value |
+|---|---|
+| Schedule | 05:00 daily |
+| Target repo | `SamyakTechLabs/stl-n8n-backups` (private) |
+| Path in repo | `n8n/exports/<sanitized-name>.json` |
+| Commit style | One atomic commit per run via GitHub Git Data API |
+| Idempotency | Compares new tree SHA to base; **skips commit if nothing changed** |
+
+### What is and isn't backed up
+
+**Backed up:** workflow JSON definitions only. n8n exports reference credentials
+by id/name — no tokens or secrets are present in the output.
+
+**Not backed up:** credentials. This is intentional. Credential values must be
+managed separately (n8n encrypted credential store, or a secrets manager).
+
+### Mechanism
+
+1. n8n API node lists all workflows.
+2. A Code node normalises each definition: strips volatile keys (`versionId`,
+   `updatedAt`, `createdAt`, `activeVersionId`, `triggerCount`, etc.) and sorts
+   keys so diffs are stable across unrelated re-saves.
+3. Commits via GitHub's **Git Data API** (create blobs → build tree → create
+   commit → update ref). **Not** the simpler Contents API — that approach
+   produces 409 conflicts on rapid multi-file commits.
+4. If the computed tree SHA matches the current HEAD tree SHA, the commit step
+   is skipped entirely.
+
+### n8n credentials required
+
+| n8n credential name | Type | Scope / notes |
+|---|---|---|
+| "GitHub account" | GitHub (PAT) | `repo` scope on the backup repo |
+| "n8n account" | n8n API | Created via n8n → Settings → n8n API → Create key |
+
+## 10. Future direction
 
 The pipeline is feature-complete for daily Shorts on four channels (Wordstrata, The Mythscape, Open Verdicts, Bright Beasts). Open TODOs (in priority order):
 

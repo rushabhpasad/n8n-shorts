@@ -118,15 +118,43 @@ HF_TOKEN=hf_...
 To force local generation entirely, set `IMAGE_BACKEND=mflux`. The local mflux
 model (~15 GB) is downloaded on first use from Tongyi-MAI/Z-Image-Turbo.
 
+## Notifications
+
+### Pipeline run notifications
+
+After each YouTube upload step, the pipeline sends a ✅ success message to
+**both Telegram and Slack** ("Notify success" + "Notify success (Slack)" nodes
+in each workflow). On any pipeline step failure, a shared **"Pipeline Error
+Alert"** workflow (Error Trigger → Telegram + Slack) fires automatically and
+posts a ❌ alert.
+
+The error-alert workflow is wired via each pipeline's **Settings → Error
+Workflow** field. Note that n8n's workflow import/API silently drops the
+per-workflow `settings.errorWorkflow` value — after importing or recreating a
+pipeline you must re-set **Error Workflow → "Pipeline Error Alert"** manually in
+the n8n UI for failure alerts to fire.
+
+`n8n/generate.py` emits both the success Telegram + Slack nodes and the
+`errorWorkflow` setting, so regenerated workflow JSON keeps notifications intact.
+
+**Identifiers** (constants in `n8n/generate.py`, not secrets):
+
+| Destination | Identifier | n8n credential |
+|---|---|---|
+| Telegram | chat `3819613` | "Telegram account" |
+| Slack | channel `C0BBAB1G588` | "Slack account" |
+
 ## Analytics digest
 
 A daily n8n workflow hits `GET /analytics/daily?days=30` at 06:00 (after the
-01:00–04:00 upload runs finish) and does two things:
+01:00–04:00 upload runs finish) and does three things:
 
-1. **Telegram digest** — sends a per-channel summary: total + new subscribers
-   (1-day and 30-day), views, likes/comments per uploaded video, and 30-day
-   estimated watch time.
-2. **Google Sheets append** — writes one row per channel to a `daily` tab for
+1. **Telegram + Slack digest** — sends a per-channel summary to both Telegram
+   and Slack: total + new subscribers (1-day and 30-day), views,
+   likes/comments per uploaded video, and 30-day estimated watch time.
+2. **Error branch** — if the HTTP call fails, a failure alert posts to both
+   Telegram and Slack.
+3. **Google Sheets append** — writes one row per channel to a `daily` tab for
    trend history.
 
 ### Endpoints
@@ -158,16 +186,22 @@ A daily n8n workflow hits `GET /analytics/daily?days=30` at 06:00 (after the
    your chat ID from
    `https://api.telegram.org/bot<TOKEN>/getUpdates`.
 
-4. **Google Sheets** — create a spreadsheet with a tab named `daily`. Create a
+4. **Slack** — create a Slack app (or use an existing one), add the
+   `chat:write` scope, install it to your workspace, and note the OAuth token.
+   In n8n create a **Slack** credential ("Slack account") with that token.
+   The pipeline posts to channel `C0BBAB1G588` — update the channel ID in
+   `n8n/generate.py` (`SLACK_CHANNEL`) if you use a different channel.
+
+5. **Google Sheets** — create a spreadsheet with a tab named `daily`. Create a
    Google Cloud **service account** + JSON key, then **share the spreadsheet
    with the service account's `client_email` as Editor**. In n8n use the
    **Google Sheets (Service Account)** credential: supply the Service Account
    Email and the Private Key from the JSON; leave "Impersonate a User" and "Set
    up for use in HTTP Request Node" OFF.
 
-5. **Activate the n8n workflow** (ID `ENbQm9ctfNRcnOuT`, created inactive) —
+6. **Activate the n8n workflow** (ID `ENbQm9ctfNRcnOuT`, created inactive) —
    fill in the spreadsheet ID and Telegram chat ID placeholders, attach the
-   Google Sheets and Telegram credentials, then activate.
+   Google Sheets, Telegram, and Slack credentials, then activate.
 
 ### `daily` tab column order
 
@@ -176,6 +210,39 @@ date, channel, total_subscribers, new_subs_1d, new_subs_30d, total_views,
 videos_uploaded, watch_time_min_30d, avg_view_duration_s,
 avg_likes_per_video, avg_comments_per_video, likes_30d, comments_30d
 ```
+
+---
+
+## Workflow backups
+
+A scheduled n8n workflow — **"Backup Workflows to Git"** — runs **daily at
+05:00** and commits all n8n workflow definitions to a private repo:
+[`SamyakTechLabs/stl-n8n-backups`](https://github.com/SamyakTechLabs/stl-n8n-backups)
+at `n8n/exports/<sanitized-name>.json`.
+
+**What is and isn't backed up:** workflow JSON only. Credentials are
+intentionally NOT exported to git — n8n workflow exports reference credentials
+by id/name only (no tokens), so backups are secret-free.
+
+**How it works:** the workflow lists all workflows via the n8n API → a Code node
+normalises each definition (strips volatile keys: `versionId`, `updatedAt`,
+`createdAt`, `activeVersionId`, `triggerCount`, etc.; sorts keys for stable
+diffs) → commits via GitHub's **Git Data API** (build tree → create commit →
+update ref) as one atomic commit per run. If nothing changed since the last run,
+the commit is skipped entirely (compares new tree SHA to base).
+
+### Setup (one-time)
+
+1. **Create the backup repo** as a private repository under your GitHub
+   org/account.
+
+2. **GitHub PAT** — create a Personal Access Token with `repo` scope. In n8n
+   create a **GitHub** credential named "GitHub account" with that PAT.
+
+3. **n8n API key** — in n8n go to **Settings → n8n API → Create API key**. In
+   n8n create an **n8n API** credential named "n8n account" with that key.
+
+4. Import and activate the "Backup Workflows to Git" workflow.
 
 ---
 
