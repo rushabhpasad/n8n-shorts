@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -43,6 +44,17 @@ class Settings(BaseSettings):
     # for a 7-image short) and thrashes the compressor. Cap the cache and we
     # clear it between images in image.py. 1 GiB is plenty of reuse headroom.
     mflux_cache_limit_bytes: int = Field(default=1024**3)
+
+    # Image backend. "space" calls the hosted Z-Image-Turbo Gradio Space (free
+    # ZeroGPU, ~12s/image, no local RAM) and falls back to local mflux per-image
+    # on any failure (GPU quota, network, error) so a run always completes.
+    # "mflux" forces local generation only.
+    image_backend: Literal["space", "mflux"] = Field(default="space")
+    zimage_space_url: str = Field(default="https://mrfakename-z-image-turbo.hf.space")
+    zimage_space_timeout_s: float = Field(default=180.0)
+    # Optional HF token → authenticated ZeroGPU quota (higher than anonymous).
+    # Set via env HF_TOKEN; never commit a real token.
+    hf_token: str | None = Field(default=None)
 
     # Piper TTS — pool of voices; /voice picks one uniformly at random per call.
     # All listed voices must be commercial-use-OK (LibriVox public-domain, CC0,
