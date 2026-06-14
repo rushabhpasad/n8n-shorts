@@ -152,7 +152,7 @@ def build_daily_report(
         try:
             results.append(channel_analytics(channel, days, today=today))
         except Exception as e:  # noqa: BLE001 — one bad channel must not block the rest
-            errors.append(f"{channel}: {e}")
+            errors.append(f"{channel}: {type(e).__name__}: {e}")
             log.warning("analytics failed for channel=%s: %s", channel, e)
     return DailyAnalyticsReport(
         date=today.isoformat(), days=days, channels=results, errors=errors,
