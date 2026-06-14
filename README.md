@@ -118,6 +118,67 @@ HF_TOKEN=hf_...
 To force local generation entirely, set `IMAGE_BACKEND=mflux`. The local mflux
 model (~15 GB) is downloaded on first use from Tongyi-MAI/Z-Image-Turbo.
 
+## Analytics digest
+
+A daily n8n workflow hits `GET /analytics/daily?days=30` at 06:00 (after the
+01:00–04:00 upload runs finish) and does two things:
+
+1. **Telegram digest** — sends a per-channel summary: total + new subscribers
+   (1-day and 30-day), views, likes/comments per uploaded video, and 30-day
+   estimated watch time.
+2. **Google Sheets append** — writes one row per channel to a `daily` tab for
+   trend history.
+
+### Endpoints
+
+| Endpoint | Description |
+|---|---|
+| `GET /analytics/daily?days=30` | All-channel report — what the n8n workflow calls. Returns `{date, days, channels:[...], errors:[...]}`. One failing channel lands in `errors`; the rest still report. |
+| `GET /{channel}/analytics?days=30` | Single-channel report — for ad-hoc inspection or debugging. |
+
+### Setup (one-time per deployment)
+
+1. **Enable APIs** in the Google Cloud project behind each channel's OAuth
+   client: **YouTube Data API v3** and **YouTube Analytics API**.
+
+2. **Re-consent each channel** for the wider analytics read scopes:
+
+   ```bash
+   uv run scripts/yt_init.py --channel wordstrata
+   uv run scripts/yt_init.py --channel the-mythscape
+   uv run scripts/yt_init.py --channel open-verdicts
+   uv run scripts/yt_init.py --channel bright-beasts
+   ```
+
+   Then restart the API service. Upload capability is retained — only the
+   consent dialog is re-shown to add `yt-analytics.readonly` and
+   `youtube.readonly`.
+
+3. **Telegram bot** — create a bot via @BotFather (note the bot token); get
+   your chat ID from
+   `https://api.telegram.org/bot<TOKEN>/getUpdates`.
+
+4. **Google Sheets** — create a spreadsheet with a tab named `daily`. Create a
+   Google Cloud **service account** + JSON key, then **share the spreadsheet
+   with the service account's `client_email` as Editor**. In n8n use the
+   **Google Sheets (Service Account)** credential: supply the Service Account
+   Email and the Private Key from the JSON; leave "Impersonate a User" and "Set
+   up for use in HTTP Request Node" OFF.
+
+5. **Activate the n8n workflow** (ID `ENbQm9ctfNRcnOuT`, created inactive) —
+   fill in the spreadsheet ID and Telegram chat ID placeholders, attach the
+   Google Sheets and Telegram credentials, then activate.
+
+### `daily` tab column order
+
+```
+date, channel, total_subscribers, new_subs_1d, new_subs_30d, total_views,
+videos_uploaded, watch_time_min_30d, avg_view_duration_s,
+avg_likes_per_video, avg_comments_per_video, likes_30d, comments_30d
+```
+
+---
+
 ## YouTube upload setup (one-time)
 
 ```bash
