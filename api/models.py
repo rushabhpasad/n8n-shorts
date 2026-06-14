@@ -214,6 +214,8 @@ class PeriodMetrics(BaseModel):
     likes: int
     comments: int
     average_view_duration_s: int
+    shares: int = 0                       # (#1) Shorts virality signal
+    average_view_percentage: float = 0.0  # (#3) retention quality, 0-100
 
 
 class VideoAnalytics(BaseModel):
@@ -222,6 +224,41 @@ class VideoAnalytics(BaseModel):
     views: int
     likes: int
     comments: int
+
+
+class TopVideo(BaseModel):
+    """(#5) The single best-performing uploaded short by lifetime views."""
+    video_id: str
+    url: str
+    views: int
+    likes: int
+    comments: int
+
+
+class CountryViews(BaseModel):
+    """(#8) Views from one country over the window (top-N for the digest)."""
+    country: str                    # ISO-3166 alpha-2 (e.g. "US")
+    views: int
+
+
+class YppProgress(BaseModel):
+    """(#6) Distance to the YouTube Partner Program Shorts bar:
+    1,000 subscribers AND 10M valid public Shorts views in 90 days."""
+    subscribers: int
+    subs_target: int = 1000
+    subs_progress: float            # 0.0-1.0, capped
+    shorts_views_90d: int
+    shorts_views_target: int = 10_000_000
+    shorts_views_progress: float    # 0.0-1.0, capped
+    eligible: bool                  # both thresholds met
+
+
+class TrendDelta(BaseModel):
+    """(#4) Change vs an earlier daily snapshot (zero extra API calls)."""
+    compared_days: int              # how many days back the baseline snapshot is
+    subscribers: int                # total-subscriber change
+    total_views: int                # lifetime-view change
+    period_views: int               # trailing-window view change
 
 
 class ChannelAnalytics(BaseModel):
@@ -233,6 +270,18 @@ class ChannelAnalytics(BaseModel):
     avg_likes_per_video: float      # lifetime cumulative across our shorts
     avg_comments_per_video: float
     videos: list[VideoAnalytics]
+    # ─── enriched signals (items 1-10) ───
+    traffic_sources: dict[str, int] = Field(default_factory=dict)  # (#2) source→views
+    shorts_feed_share: float = 0.0  # (#2) fraction of period views from the Shorts feed
+    top_countries: list[CountryViews] = Field(default_factory=list)  # (#8)
+    top_video: TopVideo | None = None                              # (#5)
+    ypp: YppProgress | None = None                                 # (#6)
+    views_90d: int = 0              # public views over trailing 90d (drives YPP)
+    queue_pending: int = 0          # (#9) pending words left in the channel queue
+    uploads_24h: int = 0            # (#9) shorts uploaded in the last 24h
+    trend: TrendDelta | None = None                                # (#4)
+    milestones: list[str] = Field(default_factory=list)            # (#7)
+    alerts: list[str] = Field(default_factory=list)                # (#10)
 
 
 class DailyAnalyticsReport(BaseModel):
@@ -240,3 +289,6 @@ class DailyAnalyticsReport(BaseModel):
     days: int
     channels: list[ChannelAnalytics]
     errors: list[str] = Field(default_factory=list)
+    # The rendered Telegram/Slack message body. Embedded here so n8n makes ONE
+    # call: the Sheets path consumes `channels`, the chat path consumes this.
+    digest_text: str = ""

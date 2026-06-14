@@ -300,6 +300,75 @@ def uploaded_video_ids(channel: str) -> list[str]:
     return [r["youtube_video_id"] for r in rows]
 
 
+def pending_word_count(channel: str) -> int:
+    """(#9) How many pending words remain in this channel's queue."""
+    with conn() as c:
+        (n,) = c.execute(
+            "SELECT COUNT(*) FROM words WHERE channel = ? AND status = 'pending'",
+            (channel,),
+        ).fetchone()
+    return n
+
+
+def uploads_since(channel: str, cutoff: str) -> int:
+    """(#9/#10) Count successful uploads for `channel` started on/after `cutoff`
+    (a 'YYYY-MM-DD HH:MM:SS' string; comparison is lexicographic on ISO text)."""
+    with conn() as c:
+        (n,) = c.execute(
+            """
+            SELECT COUNT(*) FROM runs
+            WHERE channel = ?
+              AND status = 'done'
+              AND youtube_video_id IS NOT NULL
+              AND started_at >= ?
+            """,
+            (channel, cutoff),
+        ).fetchone()
+    return n
+
+
+# ─── Analytics snapshots (trend / milestone / anomaly history) ───────────────
+
+def record_analytics_snapshot(
+    channel: str,
+    *,
+    snapshot_date: str,
+    subscribers: int,
+    total_views: int,
+    views_period: int,
+    watch_minutes_period: int,
+    shares_period: int = 0,
+) -> None:
+    """Upsert one channel's totals for `snapshot_date` (idempotent per day)."""
+    with conn() as c:
+        c.execute(
+            """
+            INSERT OR REPLACE INTO analytics_snapshots
+                (channel, date, subscribers, total_views, views_period,
+                 watch_minutes_period, shares_period)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (channel, snapshot_date, subscribers, total_views, views_period,
+             watch_minutes_period, shares_period),
+        )
+
+
+def snapshot_before(channel: str, snapshot_date: str) -> dict | None:
+    """Most recent snapshot for `channel` strictly earlier than `snapshot_date`,
+    or None if this is the channel's first run."""
+    with conn() as c:
+        row = c.execute(
+            """
+            SELECT * FROM analytics_snapshots
+            WHERE channel = ? AND date < ?
+            ORDER BY date DESC
+            LIMIT 1
+            """,
+            (channel, snapshot_date),
+        ).fetchone()
+        return dict(row) if row else None
+
+
 def get_word(channel: str, word_id: int) -> dict | None:
     with conn() as c:
         row = c.execute(

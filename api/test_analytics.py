@@ -55,14 +55,16 @@ def test_period_metrics_computes_new_subscribers_and_days():
     from services import analytics
     client = MagicMock()
     # column order MUST match analytics._PERIOD_METRICS:
-    # gained, lost, minutes, views, likes, comments, avgDuration
+    # gained, lost, minutes, views, likes, comments, avgDuration, shares, avgViewPct
     client.reports.return_value.query.return_value.execute.return_value = {
-        "rows": [[210, 10, 3420, 8000, 450, 96, 41]]
+        "rows": [[210, 10, 3420, 8000, 450, 96, 41, 120, 58.5]]
     }
     pm = analytics.period_metrics("wordstrata", "2026-05-16", "2026-06-14", client=client)
     assert pm.new_subscribers == 200
     assert pm.estimated_minutes_watched == 3420
     assert pm.average_view_duration_s == 41
+    assert pm.shares == 120
+    assert pm.average_view_percentage == 58.5
     assert pm.days == 30
 
 
@@ -94,8 +96,34 @@ def test_per_video_parses_statistics():
     assert (vids[0].likes, vids[0].comments, vids[0].views) == (14, 4, 100)
 
 
-def test_channel_analytics_rolls_up(monkeypatch):
+def _analytics_mock(period_row, traffic_rows, country_rows=None):
+    """A reports() mock that routes by query shape: the country dimension gets
+    country rows, other dimensioned queries get the traffic-source rows, and
+    plain metric queries get the period row."""
+    ya = MagicMock()
+    country_rows = country_rows or [["US", 4500], ["IN", 1200]]
+
+    def query(**kwargs):
+        q = MagicMock()
+        dim = kwargs.get("dimensions")
+        if dim == "country":
+            q.execute.return_value = {"rows": country_rows}
+        elif dim:
+            q.execute.return_value = {"rows": traffic_rows}
+        else:
+            q.execute.return_value = {"rows": [period_row]}
+        return q
+
+    ya.reports.return_value.query.side_effect = query
+    return ya
+
+
+def test_channel_analytics_rolls_up(monkeypatch, tmp_path):
+    import db
     from services import analytics
+    monkeypatch.setattr(db.settings, "db_path", tmp_path / "t.db")
+    db.init_schema()
+
     data = MagicMock()
     data.channels.return_value.list.return_value.execute.return_value = {
         "items": [{"statistics": {
@@ -107,10 +135,10 @@ def test_channel_analytics_rolls_up(monkeypatch):
             {"id": "v2", "statistics": {"viewCount": "40", "likeCount": "6", "commentCount": "2"}},
         ]
     }
-    ya = MagicMock()
-    ya.reports.return_value.query.return_value.execute.return_value = {
-        "rows": [[210, 10, 3420, 8000, 450, 96, 41]]
-    }
+    ya = _analytics_mock(
+        period_row=[210, 10, 3420, 8000, 450, 96, 41, 120, 58.5],
+        traffic_rows=[["SHORTS", 6400], ["YT_SEARCH", 1600]],
+    )
     monkeypatch.setattr(analytics.db, "uploaded_video_ids", lambda ch: ["v1", "v2"])
 
     ca = analytics.channel_analytics(
@@ -124,10 +152,24 @@ def test_channel_analytics_rolls_up(monkeypatch):
     assert ca.period.new_subscribers == 200
     assert ca.new_subs_1d == 200              # 1-day query reuses mocked rows
     assert ca.period.days == 30
+    # enriched signals
+    assert ca.shorts_feed_share == 0.8        # 6400 / 8000
+    assert [c.country for c in ca.top_countries] == ["US", "IN"]
+    assert ca.top_video.video_id == "v1"      # 100 > 40 lifetime views
+    assert ca.ypp.subscribers == 1204
+    # first run for this channel → no prior snapshot → no trend / milestones
+    assert ca.trend is None
+    assert ca.milestones == []
+    # snapshot persisted for the next run's trend baseline
+    assert db.snapshot_before("wordstrata", "2026-06-15")["subscribers"] == 1204
 
 
-def test_channel_analytics_empty_channel(monkeypatch):
+def test_channel_analytics_empty_channel(monkeypatch, tmp_path):
+    import db
     from services import analytics
+    monkeypatch.setattr(db.settings, "db_path", tmp_path / "t.db")
+    db.init_schema()
+
     data = MagicMock()
     data.channels.return_value.list.return_value.execute.return_value = {
         "items": [{"statistics": {"subscriberCount": "0", "viewCount": "0", "videoCount": "0"}}]
@@ -195,6 +237,25 @@ def test_analytics_daily_endpoint(monkeypatch):
     resp = client.get("/analytics/daily?days=30")
     assert resp.status_code == 200
     assert resp.json()["date"] == "2026-06-14"
+
+
+def test_analytics_daily_digest_endpoint_returns_text(monkeypatch):
+    from fastapi.testclient import TestClient
+    import main
+    from models import DailyAnalyticsReport
+    from services import analytics
+
+    monkeypatch.setattr(
+        analytics, "build_daily_report",
+        lambda channels, days=30: DailyAnalyticsReport(
+            date="2026-06-14", days=days, channels=[], errors=["x: boom"]),
+    )
+    client = TestClient(main.app)
+    resp = client.get("/analytics/daily/digest?days=30")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "📊 Daily Analytics — 2026-06-14" in body["text"]
+    assert "boom" in body["text"]
 
 
 def test_analytics_channel_unknown_returns_404():

@@ -150,18 +150,43 @@ A daily n8n workflow hits `GET /analytics/daily?days=30` at 06:00 (after the
 01:00–04:00 upload runs finish) and does three things:
 
 1. **Telegram + Slack digest** — sends a per-channel summary to both Telegram
-   and Slack: total + new subscribers (1-day and 30-day), views,
-   likes/comments per uploaded video, and 30-day estimated watch time.
+   and Slack. Per channel it reports:
+   - **Subscribers** — total + new (1-day and 30-day).
+   - **Watch** — 30-day estimated watch time, average view duration, and
+     average view **percentage** (retention).
+   - **Engagement** — period views, likes, comments, and **shares** (the key
+     Shorts virality signal).
+   - **Shorts-feed share** — what % of views came from the Shorts feed
+     (`insightTrafficSourceType`), i.e. how well the algorithm is distributing.
+   - **Top geography** — top 3 viewing countries (`country` dimension).
+   - **🏆 Top short** — best-performing upload by lifetime views.
+   - **YPP progress** — distance to monetization (1,000 subs + 10M 90-day
+     Shorts views).
+   - **Pipeline** — queue depth (pending words) and uploads in the last 24h.
+   - **Trend** — ▲/▼ subscriber change vs the previous snapshot.
+   - **🎉 Milestones** — fired when a channel crosses a sub/view threshold.
+   - **🔥/⚠️ Alerts** — view spike vs daily average, or a stalled upload pipeline.
+
+   The message body is rendered server-side and embedded in the
+   `/analytics/daily` response as `digest_text`, so the workflow makes a
+   **single** call: the Sheets path reads `channels[]`, the chat path forwards
+   `{{ $json.digest_text }}`.
 2. **Error branch** — if the HTTP call fails, a failure alert posts to both
-   Telegram and Slack.
+   Telegram and Slack. A single failing channel is listed under "⚠️ Errors:"
+   inside the digest; the rest still report.
 3. **Google Sheets append** — writes one row per channel to a `daily` tab for
-   trend history.
+   trend history (uses the structured JSON from `GET /analytics/daily`).
+
+Trends, milestones, and anomaly alerts are computed by diffing against the
+previous run's per-channel totals, persisted in the `analytics_snapshots`
+table — **no extra YouTube API calls**.
 
 ### Endpoints
 
 | Endpoint | Description |
 |---|---|
-| `GET /analytics/daily?days=30` | All-channel report — what the n8n workflow calls. Returns `{date, days, channels:[...], errors:[...]}`. One failing channel lands in `errors`; the rest still report. |
+| `GET /analytics/daily?days=30` | All-channel report — the single call the n8n workflow makes. Returns `{date, days, channels:[...], errors:[...], digest_text}`: `channels[]` feeds the Sheets append, `digest_text` is the rendered Telegram/Slack body. One failing channel lands in `errors`; the rest still report. |
+| `GET /analytics/daily/digest?days=30` | Optional — the same `digest_text` on its own as `{text}`, for ad-hoc preview (`curl`). Not used by the workflow. |
 | `GET /{channel}/analytics?days=30` | Single-channel report — for ad-hoc inspection or debugging. |
 
 ### Setup (one-time per deployment)
