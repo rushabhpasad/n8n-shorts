@@ -197,6 +197,7 @@ These are the high-impact files. Read carefully, change with intent.
 |---|---|---|
 | `channels/<slug>/prompts/script.md` | Output quality of the LLM for that channel. Image prompts, narration tone, sentence-level captions. Each channel has its own. | Regen one script (`curl -X POST /<slug>/script` with a `word_id`) and *read it* before any image gen. |
 | `channels/<slug>/channel.json` | Per-channel metadata — slug, display name, YouTube handle, default categories, and YouTube upload defaults (`youtube_category_id`, `youtube_default_language`, `youtube_default_audio_language`, `youtube_license`, `ai_disclosure`). Loaded at runtime by `api/channels.py`. | `curl /channels` to confirm the registry sees it. |
+| `api/services/analytics.py` | YouTube analytics — `channel_snapshot` (Data API v3: subscribers, total views, video count), `period_metrics` (Analytics API v2: new/lost subs, watch time, likes, comments over N days), `per_video` (Data API v3: per-video lifetime stats), `channel_analytics`, `build_daily_report`. | `uv run --project api pytest api/test_analytics.py -v` (all mocked — no network required). |
 | `api/services/youtube.py` | YouTube upload via Data API v3. Sets `categoryId`, `defaultLanguage`, `defaultAudioLanguage`, `containsSyntheticMedia`, `license`, `embeddable`, `publicStatsViewable`, `madeForKids`. Defaults flow from `ChannelConfig`; `UploadRequest` can override per-call. | Upload one video with `privacy: "private"`, then in Studio confirm category, language, and "Altered content" disclosure are set. |
 | `api/channels.py` | Channel registry (file-based). `load(slug)` resolves a `ChannelConfig`; `list_slugs()` discovers all channels at runtime. | Lookup an unknown slug — should 404 with a clear message. |
 | `api/models.py` (`Script`) | Schema the LLM must satisfy. Each `Beat` carries `images: list[str]` (1–4 diffusion prompts). `Script.image_prompts` is a computed property that flattens every beat's `images` in order — the rest of the pipeline reads this property, so generated images and shown images are always 1:1 by construction. A `model_validator` enforces the total image count is 4–7 (`MIN_IMAGES_TOTAL=4`, `MAX_IMAGES_TOTAL=7`). No index pool, no permutation rule; orphan/unused prompts are structurally impossible. | Round-trip a JSON through `Script.model_validate(...)`. |
@@ -239,7 +240,55 @@ unit tests to be high-leverage end-to-end:
 5. **`/upload` change**: trigger with `privacy: "private"`, check it lands in Studio.
 6. **n8n change**: Execute Workflow once end-to-end; check the audit trail in `runs` table.
 
-## 6. State and audit
+## 6. Analytics endpoints
+
+Added in `api/main.py` alongside the per-channel upload endpoints:
+
+| Endpoint | Caller | Description |
+|---|---|---|
+| `GET /analytics/daily?days=30` | n8n "Daily Analytics Digest" workflow | All-channel report. Returns `{date, days, channels:[{channel, snapshot:{subscribers,total_views,video_count}, new_subs_1d, period:{days,subscribers_gained,subscribers_lost,new_subscribers,estimated_minutes_watched,views,likes,comments,average_view_duration_s}, videos_uploaded, avg_likes_per_video, avg_comments_per_video, videos:[{video_id,views,likes,comments}]}], errors:[...]}`. One failing channel is isolated into `errors`; the rest still return. |
+| `GET /{channel}/analytics?days=30` | Ad-hoc / debugging | Single-channel variant of the above. |
+
+Data sources: YouTube Data API v3 (channel snapshot + per-video lifetime stats)
+and YouTube Analytics API v2 (time-ranged: new subs, watch time, period
+likes/comments). Uploaded video IDs come from the `runs` table
+(`db.uploaded_video_ids`).
+
+### OAuth scopes (widened — re-consent required)
+
+`api/services/youtube.py` and `scripts/yt_init.py` now request three scopes:
+
+- `https://www.googleapis.com/auth/youtube.upload`
+- `https://www.googleapis.com/auth/yt-analytics.readonly`
+- `https://www.googleapis.com/auth/youtube.readonly`
+
+**Each channel must be re-consented once** — existing `youtube_token.<slug>.json`
+files lack the analytics scopes and will return 403 on Analytics API calls
+until re-authorised. Re-run:
+
+```bash
+uv run scripts/yt_init.py --channel wordstrata
+uv run scripts/yt_init.py --channel the-mythscape
+uv run scripts/yt_init.py --channel open-verdicts
+uv run scripts/yt_init.py --channel bright-beasts
+```
+
+Restart the API service after. Upload capability is retained — only the OAuth
+consent dialog is re-shown to add the two new scopes.
+
+Also ensure both **YouTube Data API v3** and **YouTube Analytics API** are
+enabled in each channel's Google Cloud project.
+
+### n8n "Daily Analytics Digest" workflow
+
+- **Workflow ID:** `ENbQm9ctfNRcnOuT` — created **inactive**; activate after
+  filling credentials and IDs (see README setup steps).
+- **Schedule:** 06:00 daily — after the four upload workflows (01:00–04:00).
+- **Fan-out:** (a) splits to 4 rows → appends to a Google Sheets `daily` tab
+  via Google Service Account credential; (b) formats a Telegram digest → sends
+  via Telegram bot. An HTTP-error branch sends a Telegram failure alert.
+
+## 7. State and audit
 
 `state.db` (SQLite) has two tables, both **channel-scoped**:
 
@@ -265,7 +314,7 @@ secrets/youtube_token.<channel>.json
 
 The `word_` prefix in filenames is purely historical — it stays the same across all channels (mythology, animals, etc.) so the existing assemble/upload path expectations keep working.
 
-## 7. Future direction
+## 8. Future direction
 
 The pipeline is feature-complete for daily Shorts on four channels (Wordstrata, The Mythscape, Open Verdicts, Bright Beasts). Open TODOs (in priority order):
 
