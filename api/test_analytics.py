@@ -178,3 +178,22 @@ def test_build_daily_report_isolates_channel_failure(monkeypatch):
     assert [c.channel for c in report.channels] == ["good"]
     assert len(report.errors) == 1
     assert "bad" in report.errors[0] and "quota" in report.errors[0]
+
+
+def test_analytics_daily_endpoint(monkeypatch):
+    import sys
+    sys.path.insert(0, "api")
+    from fastapi.testclient import TestClient
+    import main
+    from models import DailyAnalyticsReport
+    from services import analytics
+
+    monkeypatch.setattr(
+        analytics, "build_daily_report",
+        lambda channels, days=30: DailyAnalyticsReport(
+            date="2026-06-14", days=days, channels=[], errors=[]),
+    )
+    client = TestClient(main.app)
+    resp = client.get("/analytics/daily?days=30")
+    assert resp.status_code == 200
+    assert resp.json()["date"] == "2026-06-14"

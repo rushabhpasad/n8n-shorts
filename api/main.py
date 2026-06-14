@@ -24,6 +24,8 @@ from config import settings
 from models import (
     AssembleRequest,
     AssembleResponse,
+    ChannelAnalytics,
+    DailyAnalyticsReport,
     ImageGenResult,
     ImageRequest,
     ImageResponse,
@@ -41,6 +43,7 @@ from services import image as image_svc
 from services import video as video_svc
 from services import voice as voice_svc
 from services import youtube as youtube_svc
+from services import analytics as analytics_svc
 
 logging.basicConfig(
     level=logging.INFO,
@@ -435,6 +438,21 @@ async def upload(channel: str, req: UploadRequest) -> UploadResponse:
     db.set_word_status(channel, req.word_id, "done")
     _ = cfg  # quiet linter
     return UploadResponse(word_id=req.word_id, elapsed_ms=elapsed_ms, **result)
+
+
+# ─── Analytics ────────────────────────────────────────────────────────────────
+
+@app.get("/analytics/daily", response_model=DailyAnalyticsReport)
+async def analytics_daily(days: int = 30) -> DailyAnalyticsReport:
+    """All-channel daily digest. Called by the n8n analytics workflow."""
+    channels = channel_registry.list_slugs()
+    return await asyncio.to_thread(analytics_svc.build_daily_report, channels, days)
+
+
+@app.get("/{channel}/analytics", response_model=ChannelAnalytics)
+async def analytics_channel(channel: str, days: int = 30) -> ChannelAnalytics:
+    _resolve_channel(channel)
+    return await asyncio.to_thread(analytics_svc.channel_analytics, channel, days)
 
 
 # ─── Startup ────────────────────────────────────────────────────────────────
