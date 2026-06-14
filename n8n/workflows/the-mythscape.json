@@ -2,7 +2,8 @@
   "name": "The Mythscape \u2014 Daily Shorts",
   "active": false,
   "settings": {
-    "executionOrder": "v1"
+    "executionOrder": "v1",
+    "errorWorkflow": "1VcriNGIB4vF6A0u"
   },
   "nodes": [
     {
@@ -189,6 +190,74 @@
           "timeout": 600000
         }
       }
+    },
+    {
+      "id": "format_success",
+      "name": "Format success",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2000,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const up = $input.first().json || {};\nconst word = ($('Get next word').item && $('Get next word').item.json) || {};\nconst title = word.word || word.title || (\"word \" + (up.word_id ?? \"\"));\nreturn [{ json: { text: `\u2705 The Mythscape \u2014 uploaded \"${title}\"${up.url ? \"\\n\" + up.url : \"\"}` } }];"
+      }
+    },
+    {
+      "id": "notify_telegram",
+      "name": "Notify success",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2220,
+        200
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "3819613",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "YiSf07hq0zNuBX1W",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "id": "notify_slack",
+      "name": "Notify success (Slack)",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.4,
+      "position": [
+        2220,
+        400
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "authentication": "accessToken",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "C0BBAB1G588"
+        },
+        "text": "={{ $json.text }}",
+        "messageType": "text"
+      },
+      "credentials": {
+        "slackApi": {
+          "id": "rMjfnad1hdCf097y",
+          "name": "Slack account"
+        }
+      }
     }
   ],
   "connections": {
@@ -275,6 +344,33 @@
         [
           {
             "node": "Upload to YouTube",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload to YouTube": {
+      "main": [
+        [
+          {
+            "node": "Format success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format success": {
+      "main": [
+        [
+          {
+            "node": "Notify success",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Notify success (Slack)",
             "type": "main",
             "index": 0
           }

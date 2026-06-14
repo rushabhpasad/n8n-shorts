@@ -21,6 +21,15 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 CHANNELS_DIR = REPO_ROOT / "channels"
 WORKFLOWS_DIR = Path(__file__).resolve().parent / "workflows"
 
+# Notification wiring (n8n instance-specific identifiers; tokens live in n8n credentials)
+TELEGRAM_CHAT_ID = "3819613"
+TELEGRAM_CRED = {"id": "YiSf07hq0zNuBX1W", "name": "Telegram account"}
+SLACK_CHANNEL_ID = "C0BBAB1G588"
+SLACK_CRED = {"id": "rMjfnad1hdCf097y", "name": "Slack account"}
+# NOTE: n8n may require setting errorWorkflow via the UI per workflow — the API
+# can silently drop it on import. Set it manually after importing if not present.
+ERROR_WORKFLOW_ID = "1VcriNGIB4vF6A0u"  # "Pipeline Error Alert" workflow
+
 # Stagger cron schedules so the 4 channels don't all hit Ollama/Z-Image at
 # the same minute. Image gen alone takes ~25 min/video; an hour apart leaves
 # headroom for retries.
@@ -132,6 +141,55 @@ def make_workflow(slug: str, display_name: str, cron: str) -> dict:
         http_post("do_image",     "Generate images",  1340, f"/{slug}/image",     word_id_expr, 7200000),
         http_post("do_assemble",  "Assemble video",   1560, f"/{slug}/assemble",  word_id_expr, 120000),
         http_post("do_upload",    "Upload to YouTube", 1780, f"/{slug}/upload",   upload_expr,  600000),
+        # --- success notifications (fan-out after upload) ---
+        {
+            "id": "format_success",
+            "name": "Format success",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [2000, 300],
+            "parameters": {
+                "mode": "runOnceForAllItems",
+                "jsCode": (
+                    "const up = $input.first().json || {};\n"
+                    "const word = ($('Get next word').item && $('Get next word').item.json) || {};\n"
+                    "const title = word.word || word.title || (\"word \" + (up.word_id ?? \"\"));\n"
+                    f"return [{{ json: {{ text: `✅ {display_name} — uploaded \"${{title}}\"${{up.url ? \"\\n\" + up.url : \"\"}}` }} }}];"
+                ),
+            },
+        },
+        {
+            "id": "notify_telegram",
+            "name": "Notify success",
+            "type": "n8n-nodes-base.telegram",
+            "typeVersion": 1.2,
+            "position": [2220, 200],
+            "parameters": {
+                "resource": "message",
+                "operation": "sendMessage",
+                "chatId": TELEGRAM_CHAT_ID,
+                "text": "={{ $json.text }}",
+                "additionalFields": {"appendAttribution": False},
+            },
+            "credentials": {"telegramApi": TELEGRAM_CRED},
+        },
+        {
+            "id": "notify_slack",
+            "name": "Notify success (Slack)",
+            "type": "n8n-nodes-base.slack",
+            "typeVersion": 2.4,
+            "position": [2220, 400],
+            "parameters": {
+                "resource": "message",
+                "operation": "post",
+                "authentication": "accessToken",
+                "select": "channel",
+                "channelId": {"__rl": True, "mode": "id", "value": SLACK_CHANNEL_ID},
+                "text": "={{ $json.text }}",
+                "messageType": "text",
+            },
+            "credentials": {"slackApi": SLACK_CRED},
+        },
     ]
 
     def fanout(src: str, dst: str) -> dict:
@@ -151,11 +209,24 @@ def make_workflow(slug: str, display_name: str, cron: str) -> dict:
     connections.update(fanout("Generate voice", "Generate images"))
     connections.update(fanout("Generate images", "Assemble video"))
     connections.update(fanout("Assemble video", "Upload to YouTube"))
+    connections.update(fanout("Upload to YouTube", "Format success"))
+    # Fan-out: Format success → both Telegram and Slack on output index 0
+    connections["Format success"] = {
+        "main": [[
+            {"node": "Notify success", "type": "main", "index": 0},
+            {"node": "Notify success (Slack)", "type": "main", "index": 0},
+        ]]
+    }
 
     return {
         "name": f"{display_name} — Daily Shorts",
         "active": False,
-        "settings": {"executionOrder": "v1"},
+        # NOTE: n8n may require setting errorWorkflow via the UI per workflow —
+        # the API can silently drop it on import. Verify in Settings after import.
+        "settings": {
+            "executionOrder": "v1",
+            "errorWorkflow": ERROR_WORKFLOW_ID,
+        },
         "nodes": nodes,
         "connections": connections,
     }
