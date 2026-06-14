@@ -49,25 +49,20 @@ Return **only** a single JSON object, no prose, no markdown fences. Schema:
       "label": "hook",
       "narration": "<spoken text, 5–10s at normal pace>",
       "on_screen": "<2–6 word caption>",
-      "image_idxs": [<indices into image_prompts, 1–2 entries>]
+      "images": ["<image prompt — see image-prompt rules>", "..."]
     },
     {
       "label": "origin",
       "narration": "<spoken text, 18–28s>",
       "on_screen": "<2–6 word caption>",
-      "image_idxs": [<indices into image_prompts, 2–3 entries>]
+      "images": ["<image prompt>", "<image prompt>", "..."]
     },
     {
       "label": "payoff",
       "narration": "<spoken text, 5–10s>",
       "on_screen": "<2–6 word caption>",
-      "image_idxs": [<indices into image_prompts, 1–2 entries>]
+      "images": ["<image prompt>", "..."]
     }
-  ],
-  "image_prompts": [
-    "<Flux/diffusion prompt 0 — see image-prompt rules>",
-    "<Flux/diffusion prompt 1>",
-    "..."
   ],
   "youtube": {
     "title": "<55–70 chars, ends with #shorts; include the case name>",
@@ -84,12 +79,15 @@ channel has a consistent painterly look AND each image actually carries the
 case's specific facts instead of vague mood.
 
 **Quantity & allocation:**
-- Emit **5–7 image prompts total** (target 6).
-- Allocate across beats:
+- Each beat's `images` array holds that beat's diffusion prompts, played in
+  order over equal-duration sub-segments of the beat.
+- Allocate per beat:
   - hook → 1–2 prompts
   - origin → 2–3 prompts
   - payoff → 1–2 prompts
-- The union of all `image_idxs` across beats must equal {0, 1, ..., len(image_prompts)-1} exactly once — no skipped indices, no duplicates.
+- **Total across all three beats: 4–7 prompts (5–6 recommended).**
+- Every prompt you write is rendered and shown — there are no spare or unused
+  prompts. Only include images the narration in that beat actually needs.
 
 **Style anchor (must lead every prompt with these exact words):**
 
@@ -182,16 +180,39 @@ pronunciation: 1872
 hook: American merchant brig found drifting in the Atlantic in November 1872 with sails set and a half-eaten meal in the galley but no crew aboard; ten people, including a baby, never seen again.
 ```
 
-## Good example image_prompts (for mary celeste, illustrating the specificity floor)
+## Good example beats + images (for mary celeste, illustrating the specificity floor)
 
-0. painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, a 19th century American merchant brig drifting alone on the Atlantic in November 1872, sails partially set, no figure at the wheel, viewed from a distance across grey-blue swells under an overcast sky, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks
+Six prompts total — hook 1, origin 3, payoff 2 — each living in its beat's
+`images` array. Every prompt is shown; none are spare.
 
-1. painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, the empty wooden deck of the Mary Celeste in late 1872, coiled rope, a swinging lantern, a half-open hatch, no human figures, late afternoon sun raking across damp planks, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks
-
-2. painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, the brig's galley below deck in 1872, a half-eaten meal still on a wooden plate, an overturned mug, candle guttering in a brass holder, no people, viewed from the doorway, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks
-
-3. painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, the davits of the Mary Celeste in 1872 with the single lifeboat gone, frayed rope ends swaying in the Atlantic wind, grey ocean horizon beyond, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks
-
-4. painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, the captain's cabin in 1872, an open logbook on a small desk, ink dried mid-sentence, a brass sextant beside it, oil lamp burned low, no figure present, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks
-
-5. painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, a Gibraltar admiralty courtroom in December 1872, a wooden gavel resting on a stack of inquiry papers, viewed from behind the bench, gas lamps glowing, no faces visible, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks
+```json
+"beats": [
+  {
+    "label": "hook",
+    "narration": "...",
+    "on_screen": "Found Adrift, 1872",
+    "images": [
+      "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, a 19th century American merchant brig drifting alone on the Atlantic in November 1872, sails partially set, no figure at the wheel, viewed from a distance across grey-blue swells under an overcast sky, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks"
+    ]
+  },
+  {
+    "label": "origin",
+    "narration": "...",
+    "on_screen": "What the Record Holds",
+    "images": [
+      "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, the empty wooden deck of the Mary Celeste in late 1872, coiled rope, a swinging lantern, a half-open hatch, no human figures, late afternoon sun raking across damp planks, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks",
+      "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, the brig's galley below deck in 1872, a half-eaten meal still on a wooden plate, an overturned mug, candle guttering in a brass holder, no people, viewed from the doorway, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks",
+      "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, the davits of the Mary Celeste in 1872 with the single lifeboat gone, frayed rope ends swaying in the Atlantic wind, grey ocean horizon beyond, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks"
+    ]
+  },
+  {
+    "label": "payoff",
+    "narration": "...",
+    "on_screen": "An Open Verdict",
+    "images": [
+      "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, the captain's cabin in 1872, an open logbook on a small desk, ink dried mid-sentence, a brass sextant beside it, oil lamp burned low, no figure present, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks",
+      "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, a Gibraltar admiralty courtroom in December 1872, a wooden gavel resting on a stack of inquiry papers, viewed from behind the bench, gas lamps glowing, no faces visible, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks"
+    ]
+  }
+]
+```

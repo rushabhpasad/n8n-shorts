@@ -1,8 +1,8 @@
 """Video assembly — N narration images + branded outro card + WAV + captions → MP4.
 
 Layout:
-- Each script beat (hook / origin / payoff) carries 1–4 image_idxs. A beat's
-  duration is split evenly among its images.
+- Each script beat (hook / origin / payoff) carries 1–4 image prompts. A
+  beat's duration is split evenly among its images.
 - Audio: Piper-rendered WAV including the CTA outro line.
 - Outro: a Pillow-rendered branded card (SUBSCRIBE button + bell hint) shown
   during the CTA's audio window — same card across every short for brand
@@ -124,15 +124,23 @@ def _compute_sentence_timings(
 def _compute_image_segments(
     script: Script, beat_durations: list[float]
 ) -> list[tuple[int, float]]:
+    """Map each image to a (global_index, duration) sub-segment.
+
+    Images are numbered in flat beat order — matching Script.image_prompts and
+    the PNG filenames written by the image stage — so the returned segments
+    cover 0..N-1 exactly once. A beat's duration is split evenly among its
+    images.
+    """
     out: list[tuple[int, float]] = []
+    global_idx = 0
     for i, beat in enumerate(script.beats):
-        beat_dur = beat_durations[i]
-        n = len(beat.image_idxs)
+        n = len(beat.images)
         if n == 0:
-            raise ValueError(f"beat {i} has no image_idxs")
-        seg_dur = beat_dur / n
-        for img_idx in beat.image_idxs:
-            out.append((img_idx, round(seg_dur, 3)))
+            raise ValueError(f"beat {i} has no images")
+        seg_dur = beat_durations[i] / n
+        for _ in range(n):
+            out.append((global_idx, round(seg_dur, 3)))
+            global_idx += 1
     return out
 
 
@@ -472,13 +480,14 @@ def assemble_video(
         title_input = audio_input + 1
         sent_input_start = title_input + 1
 
-        # Story segment durations (per image input). The script contract allows
-        # orphan prompts — images generated but never referenced by a beat (see
-        # Script._validate_image_coverage). Such inputs are declared to ffmpeg
-        # but never appear in the filter graph, so they only need a valid,
-        # nominal duration; one frame is enough.
+        # Story segment durations (per image input). Segments are numbered in
+        # flat beat order and cover every image exactly once, so img_dur is
+        # dense over 0..N-1; guard that invariant rather than risk a KeyError.
         img_dur: dict[int, float] = {idx: dur for idx, dur in segments}
-        orphan_dur = round(1.0 / FPS, 3)
+        if len(img_dur) != N:
+            raise ValueError(
+                f"image/segment mismatch: {N} images but {len(img_dur)} segments"
+            )
 
         chains: list[str] = []
         seg_labels: list[str] = []
@@ -528,7 +537,7 @@ def assemble_video(
             cmd += [
                 "-loop", "1",
                 "-framerate", str(FPS),
-                "-t", f"{img_dur.get(i, orphan_dur)}",
+                "-t", f"{img_dur[i]}",
                 "-i", str(image_paths[i]),
             ]
         if has_outro:

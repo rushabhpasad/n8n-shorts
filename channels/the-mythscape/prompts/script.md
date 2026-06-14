@@ -50,25 +50,20 @@ Return **only** a single JSON object, no prose, no markdown fences. Schema:
       "label": "hook",
       "narration": "<spoken text, 5–10s at normal pace>",
       "on_screen": "<2–6 word caption (legacy/back-compat — keep it punchy)>",
-      "image_idxs": [<indices into image_prompts, 1–2 entries>]
+      "images": ["<image prompt — see image-prompt rules>", "..."]
     },
     {
       "label": "origin",
       "narration": "<spoken text, 18–28s>",
       "on_screen": "<2–6 word caption>",
-      "image_idxs": [<indices into image_prompts, 2–3 entries>]
+      "images": ["<image prompt>", "<image prompt>", "..."]
     },
     {
       "label": "payoff",
       "narration": "<spoken text, 5–10s>",
       "on_screen": "<2–6 word caption>",
-      "image_idxs": [<indices into image_prompts, 1–2 entries>]
+      "images": ["<image prompt>", "..."]
     }
-  ],
-  "image_prompts": [
-    "<Flux/diffusion prompt 0 — see image-prompt rules>",
-    "<Flux/diffusion prompt 1>",
-    "..."
   ],
   "youtube": {
     "title": "<55–70 chars, ends with #shorts; include the figure or myth name>",
@@ -85,12 +80,15 @@ the channel has a consistent painterly look AND each image actually carries
 the myth's specific story instead of vague mood.
 
 **Quantity & allocation:**
-- Emit **5–7 image prompts total** (target 6).
-- Allocate across beats:
+- Each beat's `images` array holds that beat's diffusion prompts, played in
+  order over equal-duration sub-segments of the beat.
+- Allocate per beat:
   - hook → 1–2 prompts
   - origin → 2–3 prompts
   - payoff → 1–2 prompts
-- The union of all `image_idxs` across beats must equal {0, 1, ..., len(image_prompts)-1} exactly once — no skipped indices, no duplicates.
+- **Total across all three beats: 4–7 prompts (5–6 recommended).**
+- Every prompt you write is rendered and shown — there are no spare or unused
+  prompts. Only include images the narration in that beat actually needs.
 
 **Style anchor (must lead every prompt with these exact words):**
 
@@ -172,16 +170,39 @@ pronunciation: greek
 hook: Lydian weaver who challenged Athena to a contest; her tapestry mocked the gods so Athena tore it and transformed her into the first spider.
 ```
 
-## Good example image_prompts (for arachne, illustrating the specificity floor)
+## Good example beats + images (for arachne, illustrating the specificity floor)
 
-0. painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, a confident young Lydian weaver in Bronze Age Greek dress standing at a tall wooden loom in a sunlit workshop in the kingdom of Lydia, holding a shuttle mid-throw, threads of dyed wool stretching taut, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks
+Six prompts total — hook 1, origin 3, payoff 2 — each living in its beat's
+`images` array. Every prompt is shown; none are spare.
 
-1. painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, the goddess Athena in Bronze Age Greek bronze armor and helmet, standing in the same Lydian workshop, her weaving frame beside Arachne's, weaving a tapestry of the twelve Olympians in calm majesty, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks
-
-2. painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, a close view of Arachne's finished tapestry hanging in Bronze Age Lydia, depicting the gods in mocking scenes — Zeus as a swan, Poseidon as a bull — woven in vivid threads, lit by a shaft of sunlight, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks
-
-3. painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, Athena's bronze-armored hand gripping the edge of Arachne's tapestry and tearing it down the middle in the Lydian workshop, woven threads snapping and falling, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks
-
-4. painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, Arachne mid-transformation in the Bronze Age Lydian workshop, her arms thinning and lengthening into spider legs, her loom abandoned behind her, threads of silk beginning to spool from her fingertips, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks
-
-5. painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, a single dew-laden spider's web spun between two olive branches at dawn in the Lydian hills, the same warm hue as the workshop scenes, geometry of the threads echoing a loom, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks
+```json
+"beats": [
+  {
+    "label": "hook",
+    "narration": "...",
+    "on_screen": "The Weaver of Lydia",
+    "images": [
+      "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, a confident young Lydian weaver in Bronze Age Greek dress standing at a tall wooden loom in a sunlit workshop in the kingdom of Lydia, holding a shuttle mid-throw, threads of dyed wool stretching taut, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks"
+    ]
+  },
+  {
+    "label": "origin",
+    "narration": "...",
+    "on_screen": "The Contest",
+    "images": [
+      "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, the goddess Athena in Bronze Age Greek bronze armor and helmet, standing in the same Lydian workshop, her weaving frame beside Arachne's, weaving a tapestry of the twelve Olympians in calm majesty, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks",
+      "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, a close view of Arachne's finished tapestry hanging in Bronze Age Lydia, depicting the gods in mocking scenes — Zeus as a swan, Poseidon as a bull — woven in vivid threads, lit by a shaft of sunlight, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks",
+      "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, Athena's bronze-armored hand gripping the edge of Arachne's tapestry and tearing it down the middle in the Lydian workshop, woven threads snapping and falling, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks"
+    ]
+  },
+  {
+    "label": "payoff",
+    "narration": "...",
+    "on_screen": "The First Spider",
+    "images": [
+      "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, Arachne mid-transformation in the Bronze Age Lydian workshop, her arms thinning and lengthening into spider legs, her loom abandoned behind her, threads of silk beginning to spool from her fingertips, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks",
+      "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, a single dew-laden spider's web spun between two olive branches at dawn in the Lydian hills, the same warm hue as the workshop scenes, geometry of the threads echoing a loom, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks"
+    ]
+  }
+]
+```
