@@ -40,3 +40,57 @@ def test_uploaded_video_ids_filters_to_done_with_video(monkeypatch, tmp_path):
     assert db.uploaded_video_ids("wordstrata") == ["vidA"]
     assert db.uploaded_video_ids("the-mythscape") == ["vidM"]
     assert db.uploaded_video_ids("open-verdicts") == []
+
+
+def test_channel_snapshot_parses_statistics():
+    from services import analytics
+    client = MagicMock()
+    client.channels.return_value.list.return_value.execute.return_value = {
+        "items": [{"statistics": {
+            "subscriberCount": "1204", "viewCount": "55000", "videoCount": "32"}}]
+    }
+    snap = analytics.channel_snapshot("wordstrata", client=client)
+    assert (snap.subscribers, snap.total_views, snap.video_count) == (1204, 55000, 32)
+
+
+def test_period_metrics_computes_new_subscribers_and_days():
+    from services import analytics
+    client = MagicMock()
+    # column order MUST match analytics._PERIOD_METRICS:
+    # gained, lost, minutes, views, likes, comments, avgDuration
+    client.reports.return_value.query.return_value.execute.return_value = {
+        "rows": [[210, 10, 3420, 8000, 450, 96, 41]]
+    }
+    pm = analytics.period_metrics("wordstrata", "2026-05-16", "2026-06-14", client=client)
+    assert pm.new_subscribers == 200
+    assert pm.estimated_minutes_watched == 3420
+    assert pm.average_view_duration_s == 41
+    assert pm.days == 30
+
+
+def test_period_metrics_handles_empty_rows():
+    from services import analytics
+    client = MagicMock()
+    client.reports.return_value.query.return_value.execute.return_value = {}
+    pm = analytics.period_metrics("wordstrata", "2026-06-14", "2026-06-14", client=client)
+    assert pm.new_subscribers == 0
+    assert pm.estimated_minutes_watched == 0
+
+
+def test_per_video_empty_returns_empty():
+    from services import analytics
+    assert analytics.per_video("wordstrata", [], client=MagicMock()) == []
+
+
+def test_per_video_parses_statistics():
+    from services import analytics
+    client = MagicMock()
+    client.videos.return_value.list.return_value.execute.return_value = {
+        "items": [
+            {"id": "v1", "statistics": {"viewCount": "100", "likeCount": "14", "commentCount": "4"}},
+            {"id": "v2", "statistics": {"viewCount": "40", "likeCount": "6", "commentCount": "2"}},
+        ]
+    }
+    vids = analytics.per_video("wordstrata", ["v1", "v2"], client=client)
+    assert [v.video_id for v in vids] == ["v1", "v2"]
+    assert (vids[0].likes, vids[0].comments, vids[0].views) == (14, 4, 100)
