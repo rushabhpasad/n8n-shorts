@@ -21,7 +21,11 @@ from models import Script
 
 log = logging.getLogger("shorts-api.youtube")
 
-SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
+SCOPES = [
+    "https://www.googleapis.com/auth/youtube.upload",
+    "https://www.googleapis.com/auth/yt-analytics.readonly",
+    "https://www.googleapis.com/auth/youtube.readonly",
+]
 # YouTube video category IDs — full list:
 # https://developers.google.com/youtube/v3/docs/videoCategories/list
 CATEGORY_EDUCATION = "27"
@@ -32,7 +36,7 @@ CATEGORY_HOWTO_STYLE = "26"
 CATEGORY_PEOPLE_BLOGS = "22"
 
 
-def _credentials(channel: str) -> Credentials:
+def credentials(channel: str) -> Credentials:
     token_path = settings.youtube_token_path(channel)
     if not token_path.exists():
         raise RuntimeError(
@@ -81,7 +85,7 @@ def upload_short(
     if license_ not in ("youtube", "creativeCommon"):
         raise ValueError(f"license must be youtube|creativeCommon, got {license_!r}")
 
-    creds = _credentials(channel)
+    creds = credentials(channel)
     youtube = build("youtube", "v3", credentials=creds)
 
     body = {
