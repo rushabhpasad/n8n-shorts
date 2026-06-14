@@ -35,9 +35,11 @@ client-secret JSON and save it to secrets/youtube_oauth.<channel>.json.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
+from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -79,14 +81,30 @@ def main() -> int:
 
     creds: Credentials | None = None
     if token_path.exists():
-        print(f"Existing token at {token_path} — refreshing if possible…")
+        print(f"Existing token at {token_path} — checking scopes…")
         creds = Credentials.from_authorized_user_file(str(token_path), SCOPES)
-        if creds.valid:
-            print("Token already valid. Nothing to do.")
+        # The granted scopes live in the token file, not on `creds` (which
+        # reflects the *requested* SCOPES). If the stored grant is missing any
+        # required scope, a refresh fails with `invalid_scope` — so force a full
+        # re-consent instead of trying (and crashing on) a refresh.
+        granted = set(json.loads(token_path.read_text()).get("scopes") or [])
+        missing = set(SCOPES) - granted
+        if missing:
+            print(
+                "Stored token is missing required scope(s): "
+                f"{sorted(missing)}\nRe-authorizing with the full scope set…"
+            )
+            creds = None
+        elif creds.valid:
+            print("Token already valid with the required scopes. Nothing to do.")
         elif creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-            token_path.write_text(creds.to_json())
-            print("Token refreshed and rewritten.")
+            try:
+                creds.refresh(Request())
+                token_path.write_text(creds.to_json())
+                print("Token refreshed and rewritten.")
+            except RefreshError as e:
+                print(f"Refresh failed ({e}) — running full consent flow.")
+                creds = None
         else:
             print("Existing token is not refreshable — running full flow.")
             creds = None
