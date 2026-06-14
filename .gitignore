@@ -7,6 +7,7 @@ _samples/
 # Python
 api/.venv/
 .venv/
+.venv-test/
 __pycache__/
 *.pyc
 *.pyo
@@ -21,6 +22,7 @@ api/.env
 *.token.json
 *_token.json
 *_oauth.json
+.mcp.json
 
 # Large model caches (re-downloadable artifacts, not source)
 assets/piper/
@@ -42,3 +44,6 @@ assets/brand/
 
 # Node (in case n8n or future tooling lands here)
 node_modules/
+
+# brainstorming visual companion
+.superpowers/
