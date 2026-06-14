@@ -135,3 +135,25 @@ def channel_analytics(
         avg_comments_per_video=avg_comments,
         videos=videos,
     )
+
+
+def build_daily_report(
+    channels: list[str],
+    days: int = 30,
+    *,
+    today: date | None = None,
+) -> DailyAnalyticsReport:
+    """Fetch analytics for each channel; a failing channel is recorded in
+    `errors` rather than failing the whole report."""
+    today = today or date.today()
+    results: list[ChannelAnalytics] = []
+    errors: list[str] = []
+    for channel in channels:
+        try:
+            results.append(channel_analytics(channel, days, today=today))
+        except Exception as e:  # noqa: BLE001 — one bad channel must not block the rest
+            errors.append(f"{channel}: {e}")
+            log.warning("analytics failed for channel=%s: %s", channel, e)
+    return DailyAnalyticsReport(
+        date=today.isoformat(), days=days, channels=results, errors=errors,
+    )

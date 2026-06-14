@@ -145,3 +145,38 @@ def test_channel_analytics_empty_channel(monkeypatch):
     assert ca.videos_uploaded == 0
     assert ca.avg_likes_per_video == 0.0
     assert ca.videos == []
+
+
+def _minimal_channel_analytics(channel):
+    from models import ChannelAnalytics, ChannelSnapshot, PeriodMetrics
+    return ChannelAnalytics(
+        channel=channel,
+        snapshot=ChannelSnapshot(subscribers=1, total_views=1, video_count=1),
+        new_subs_1d=0,
+        period=PeriodMetrics(
+            days=30, subscribers_gained=0, subscribers_lost=0, new_subscribers=0,
+            estimated_minutes_watched=0, views=0, likes=0, comments=0,
+            average_view_duration_s=0,
+        ),
+        videos_uploaded=0, avg_likes_per_video=0.0, avg_comments_per_video=0.0,
+        videos=[],
+    )
+
+
+def test_build_daily_report_isolates_channel_failure(monkeypatch):
+    from services import analytics
+
+    def fake(channel, days, *, today=None):
+        if channel == "bad":
+            raise RuntimeError("quota exceeded")
+        return _minimal_channel_analytics(channel)
+
+    monkeypatch.setattr(analytics, "channel_analytics", fake)
+    report = analytics.build_daily_report(
+        ["good", "bad"], days=30, today=date(2026, 6, 14))
+
+    assert report.date == "2026-06-14"
+    assert report.days == 30
+    assert [c.channel for c in report.channels] == ["good"]
+    assert len(report.errors) == 1
+    assert "bad" in report.errors[0] and "quota" in report.errors[0]
