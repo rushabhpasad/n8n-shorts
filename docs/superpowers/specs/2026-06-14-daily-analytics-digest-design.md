@@ -35,8 +35,9 @@ Sheet** for trend tracking.
   period like/comment metrics require the **YouTube Analytics API**, which needs
   `yt-analytics.readonly` + `youtube.readonly`. **Each channel must be
   re-consented once** to add these read scopes (upload scope retained).
-- No `authorize` script exists today — tokens were minted externally. Re-consent
-  tooling is part of this work.
+- The per-channel OAuth bootstrap script `scripts/yt_init.py` already exists
+  (`SCOPES` hard-coded to upload-only). Widening its `SCOPES` + re-running it per
+  channel is the re-consent path — no new script needed.
 - n8n holds **no** Google/Telegram/Sheets credentials (uploads go through the
   FastAPI service). Sheets + Telegram credentials are new and created in n8n.
 - The `runs` table (`sql/schema.sql`) records `channel`, `youtube_video_id`,
@@ -94,11 +95,12 @@ from the (re-scoped) token. Pure shaping logic separated from I/O where practica
 - `GET /{channel}/analytics?days=30` → `ChannelAnalytics` (ad-hoc / debugging).
 - `GET /analytics/daily?days=30` → `DailyAnalyticsReport` (all 4 channels; what n8n calls).
 
-### 4. `scripts/youtube_authorize.py` (new)
-One-time per-channel re-consent via `InstalledAppFlow.run_local_server`, minting
-tokens with `["youtube.upload", "yt-analytics.readonly", "youtube.readonly"]`.
-Usage: `uv run --project api scripts/youtube_authorize.py --channel <slug>`.
-`SCOPES` in `api/services/youtube.py` is widened to match.
+### 4. `scripts/yt_init.py` (modify) + `api/services/youtube.py` (modify)
+Widen the shared scope set to
+`["youtube.upload", "yt-analytics.readonly", "youtube.readonly"]` in both files,
+then re-run the existing bootstrap once per channel to re-consent:
+`uv run scripts/yt_init.py --channel <slug>`. The existing token-refresh path in
+`youtube.py` picks up the new scopes after re-consent.
 
 ### 5. n8n workflow "Daily Analytics Digest" (new)
 Built and validated via n8n-mcp (`validate_workflow` → `create_workflow_from_code`),
