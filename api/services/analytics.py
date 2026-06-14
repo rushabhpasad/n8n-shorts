@@ -118,6 +118,9 @@ def channel_analytics(
     one_day = period_metrics(channel, yesterday, yesterday, client=analytics_client)
     videos = per_video(channel, db.uploaded_video_ids(channel), client=data_client)
 
+    # Count and average denominator are the same set: shorts YouTube returned
+    # stats for (== our uploads, minus any deleted/private videos). Keeping them
+    # in lockstep means the digest's "avg X across N shorts" is self-consistent.
     n = len(videos)
     avg_likes = round(sum(v.likes for v in videos) / n, 1) if n else 0.0
     avg_comments = round(sum(v.comments for v in videos) / n, 1) if n else 0.0
