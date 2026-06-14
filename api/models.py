@@ -192,3 +192,52 @@ class UploadResponse(BaseModel):
     url: str
     privacy: str
     elapsed_ms: int
+
+
+# ─── Analytics ────────────────────────────────────────────────────────────────
+
+class ChannelSnapshot(BaseModel):
+    """Lifetime channel totals (YouTube Data API, point-in-time)."""
+    subscribers: int
+    total_views: int
+    video_count: int
+
+
+class PeriodMetrics(BaseModel):
+    """Time-ranged channel metrics (YouTube Analytics API)."""
+    days: int
+    subscribers_gained: int
+    subscribers_lost: int
+    new_subscribers: int            # gained - lost
+    estimated_minutes_watched: int
+    views: int
+    likes: int
+    comments: int
+    average_view_duration_s: int
+
+
+class VideoAnalytics(BaseModel):
+    """Lifetime cumulative stats for one uploaded short (Data API)."""
+    video_id: str
+    views: int
+    likes: int
+    comments: int
+
+
+class ChannelAnalytics(BaseModel):
+    channel: str
+    snapshot: ChannelSnapshot
+    new_subs_1d: int                # subscribers gained-lost, yesterday
+    period: PeriodMetrics           # trailing `days` window (default 30)
+    videos_uploaded: int            # count of our uploaded shorts
+    avg_likes_per_video: float      # lifetime cumulative across our shorts
+    avg_comments_per_video: float
+    videos: list[VideoAnalytics]
+    error: str | None = None
+
+
+class DailyAnalyticsReport(BaseModel):
+    date: str                       # report run date, YYYY-MM-DD
+    days: int
+    channels: list[ChannelAnalytics]
+    errors: list[str] = Field(default_factory=list)
