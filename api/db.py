@@ -280,6 +280,26 @@ def next_pending_word(channel: str) -> dict | None:
         return dict(row) if row else None
 
 
+def uploaded_video_ids(channel: str) -> list[str]:
+    """YouTube video IDs of this channel's successfully-uploaded shorts.
+
+    The canonical 'our content' list — newest first. Drives per-video stats
+    so we never scan the channel's entire upload history.
+    """
+    with conn() as c:
+        rows = c.execute(
+            """
+            SELECT youtube_video_id FROM runs
+            WHERE channel = ?
+              AND status = 'done'
+              AND youtube_video_id IS NOT NULL
+            ORDER BY started_at DESC
+            """,
+            (channel,),
+        ).fetchall()
+    return [r["youtube_video_id"] for r in rows]
+
+
 def get_word(channel: str, word_id: int) -> dict | None:
     with conn() as c:
         row = c.execute(
