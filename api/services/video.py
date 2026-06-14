@@ -472,8 +472,13 @@ def assemble_video(
         title_input = audio_input + 1
         sent_input_start = title_input + 1
 
-        # Story segment durations (per image input)
+        # Story segment durations (per image input). The script contract allows
+        # orphan prompts — images generated but never referenced by a beat (see
+        # Script._validate_image_coverage). Such inputs are declared to ffmpeg
+        # but never appear in the filter graph, so they only need a valid,
+        # nominal duration; one frame is enough.
         img_dur: dict[int, float] = {idx: dur for idx, dur in segments}
+        orphan_dur = round(1.0 / FPS, 3)
 
         chains: list[str] = []
         seg_labels: list[str] = []
@@ -523,7 +528,7 @@ def assemble_video(
             cmd += [
                 "-loop", "1",
                 "-framerate", str(FPS),
-                "-t", f"{img_dur[i]}",
+                "-t", f"{img_dur.get(i, orphan_dur)}",
                 "-i", str(image_paths[i]),
             ]
         if has_outro:
