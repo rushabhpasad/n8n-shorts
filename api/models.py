@@ -233,7 +233,6 @@ class ChannelAnalytics(BaseModel):
     avg_likes_per_video: float      # lifetime cumulative across our shorts
     avg_comments_per_video: float
     videos: list[VideoAnalytics]
-    error: str | None = None
 
 
 class DailyAnalyticsReport(BaseModel):
