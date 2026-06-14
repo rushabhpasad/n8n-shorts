@@ -449,6 +449,8 @@ async def analytics_daily(days: int = 30) -> DailyAnalyticsReport:
     return await asyncio.to_thread(analytics_svc.build_daily_report, channels, days)
 
 
+# NOTE: must stay declared AFTER /analytics/daily — otherwise the {channel}
+# wildcard would capture "analytics" as a slug.
 @app.get("/{channel}/analytics", response_model=ChannelAnalytics)
 async def analytics_channel(channel: str, days: int = 30) -> ChannelAnalytics:
     _resolve_channel(channel)
