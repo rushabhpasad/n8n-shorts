@@ -46,3 +46,18 @@ CREATE TABLE IF NOT EXISTS runs (
 
 CREATE INDEX IF NOT EXISTS idx_runs_channel_word ON runs(channel, word_id, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
+
+-- One row per channel per analytics run. Powers day-over-day trends,
+-- milestone-crossing detection, and anomaly alerts in the daily digest
+-- without re-querying historical windows from the YouTube API.
+CREATE TABLE IF NOT EXISTS analytics_snapshots (
+    channel               TEXT    NOT NULL,
+    date                  TEXT    NOT NULL,   -- YYYY-MM-DD (report run date)
+    subscribers           INTEGER NOT NULL,
+    total_views           INTEGER NOT NULL,
+    views_period          INTEGER NOT NULL,   -- trailing-window views at snapshot time
+    watch_minutes_period  INTEGER NOT NULL,
+    shares_period         INTEGER NOT NULL DEFAULT 0,
+    created_at            TEXT    NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (channel, date)
+);

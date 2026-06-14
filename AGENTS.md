@@ -197,7 +197,7 @@ These are the high-impact files. Read carefully, change with intent.
 |---|---|---|
 | `channels/<slug>/prompts/script.md` | Output quality of the LLM for that channel. Image prompts, narration tone, sentence-level captions. Each channel has its own. | Regen one script (`curl -X POST /<slug>/script` with a `word_id`) and *read it* before any image gen. |
 | `channels/<slug>/channel.json` | Per-channel metadata — slug, display name, YouTube handle, default categories, and YouTube upload defaults (`youtube_category_id`, `youtube_default_language`, `youtube_default_audio_language`, `youtube_license`, `ai_disclosure`). Loaded at runtime by `api/channels.py`. | `curl /channels` to confirm the registry sees it. |
-| `api/services/analytics.py` | YouTube analytics — `channel_snapshot` (Data API v3: subscribers, total views, video count), `period_metrics` (Analytics API v2: new/lost subs, watch time, likes, comments over N days), `per_video` (Data API v3: per-video lifetime stats), `channel_analytics`, `build_daily_report`. | `uv run --project api pytest api/test_analytics.py -v` (all mocked — no network required). |
+| `api/services/analytics.py` | YouTube analytics — `channel_snapshot` (Data API v3), `period_metrics` (Analytics API v2: new/lost subs, watch time, likes, comments, shares, avg-view-% over N days), `per_video` (Data API v3 lifetime stats), `traffic_sources` (Shorts-feed share), `top_video`, `ypp_progress`, `compute_milestones`, `detect_alerts`, `channel_analytics` (orchestrates + reads/writes `analytics_snapshots` for trends), `build_daily_report`, `render_digest` (the Telegram/Slack message body). | `uv run --project api pytest api/test_analytics.py api/test_analytics_extras.py -v` (all mocked — no network). |
 | `api/services/youtube.py` | YouTube upload via Data API v3. Sets `categoryId`, `defaultLanguage`, `defaultAudioLanguage`, `containsSyntheticMedia`, `license`, `embeddable`, `publicStatsViewable`, `madeForKids`. Defaults flow from `ChannelConfig`; `UploadRequest` can override per-call. | Upload one video with `privacy: "private"`, then in Studio confirm category, language, and "Altered content" disclosure are set. |
 | `api/channels.py` | Channel registry (file-based). `load(slug)` resolves a `ChannelConfig`; `list_slugs()` discovers all channels at runtime. | Lookup an unknown slug — should 404 with a clear message. |
 | `api/models.py` (`Script`) | Schema the LLM must satisfy. Each `Beat` carries `images: list[str]` (1–4 diffusion prompts). `Script.image_prompts` is a computed property that flattens every beat's `images` in order — the rest of the pipeline reads this property, so generated images and shown images are always 1:1 by construction. A `model_validator` enforces the total image count is 4–7 (`MIN_IMAGES_TOTAL=4`, `MAX_IMAGES_TOTAL=7`). No index pool, no permutation rule; orphan/unused prompts are structurally impossible. | Round-trip a JSON through `Script.model_validate(...)`. |
@@ -246,13 +246,19 @@ Added in `api/main.py` alongside the per-channel upload endpoints:
 
 | Endpoint | Caller | Description |
 |---|---|---|
-| `GET /analytics/daily?days=30` | n8n "Daily Analytics Digest" workflow | All-channel report. Returns `{date, days, channels:[{channel, snapshot:{subscribers,total_views,video_count}, new_subs_1d, period:{days,subscribers_gained,subscribers_lost,new_subscribers,estimated_minutes_watched,views,likes,comments,average_view_duration_s}, videos_uploaded, avg_likes_per_video, avg_comments_per_video, videos:[{video_id,views,likes,comments}]}], errors:[...]}`. One failing channel is isolated into `errors`; the rest still return. |
-| `GET /{channel}/analytics?days=30` | Ad-hoc / debugging | Single-channel variant of the above. |
+| `GET /analytics/daily?days=30` | n8n Sheets append | All-channel structured report. `channels[]` carries: `snapshot{subscribers,total_views,video_count}`, `new_subs_1d`, `period{days,subscribers_gained,subscribers_lost,new_subscribers,estimated_minutes_watched,views,likes,comments,average_view_duration_s,shares,average_view_percentage}`, `videos_uploaded`, `avg_likes_per_video`, `avg_comments_per_video`, `videos[]`, plus the enriched signals `traffic_sources{}`, `shorts_feed_share`, `top_countries[{country,views}]`, `top_video{video_id,url,views,likes,comments}`, `ypp{subscribers,subs_target,subs_progress,shorts_views_90d,shorts_views_target,shorts_views_progress,eligible}`, `views_90d`, `queue_pending`, `uploads_24h`, `trend{compared_days,subscribers,total_views,period_views}`, `milestones[]`, `alerts[]`, and `digest_text` (the rendered Telegram/Slack body — `analytics.render_digest`, unit-tested). The workflow makes this single call: `channels[]` → Sheets, `digest_text` → chat. One failing channel is isolated into `errors`; the rest still return. |
+| `GET /analytics/daily/digest?days=30` | Ad-hoc preview only | Returns just the digest body as `{text}`. Not used by the workflow. |
+| `GET /{channel}/analytics?days=30` | Ad-hoc / debugging | Single-channel variant of the structured report. |
 
 Data sources: YouTube Data API v3 (channel snapshot + per-video lifetime stats)
 and YouTube Analytics API v2 (time-ranged: new subs, watch time, period
-likes/comments). Uploaded video IDs come from the `runs` table
-(`db.uploaded_video_ids`).
+likes/comments/shares/avg-view-%, plus `insightTrafficSourceType` for the
+Shorts-feed share, `country` for top geography, and a 90-day window for YPP
+progress). Uploaded video IDs
+come from the `runs` table (`db.uploaded_video_ids`). Trends, milestones, and
+anomaly alerts are diffed against the previous run's totals stored in the
+`analytics_snapshots` table (one row per channel per day) — **no extra API
+calls** — and `queue_pending` / `uploads_24h` read straight from `words`/`runs`.
 
 ### OAuth scopes (widened — re-consent required)
 
@@ -284,10 +290,10 @@ enabled in each channel's Google Cloud project.
 - **Workflow ID:** `ENbQm9ctfNRcnOuT` — created **inactive**; activate after
   filling credentials and IDs (see README setup steps).
 - **Schedule:** 06:00 daily — after the four upload workflows (01:00–04:00).
-- **Fan-out:** (a) splits to 4 rows → appends to a Google Sheets `daily` tab
-  via Google Service Account credential; (b) formats a digest → sends to both
-  Telegram and Slack. An HTTP-error branch sends a failure alert to both
-  Telegram and Slack.
+- **Fan-out:** a single `/analytics/daily` call feeds two branches off its
+  success output — (a) `Split to rows` → 4 rows → Google Sheets `daily` tab via
+  Google Service Account credential; (b) `{{ $json.digest_text }}` → Telegram +
+  Slack. An HTTP-error branch sends a failure alert to both.
 
 ## 7. State and audit
 

@@ -444,9 +444,25 @@ async def upload(channel: str, req: UploadRequest) -> UploadResponse:
 
 @app.get("/analytics/daily", response_model=DailyAnalyticsReport)
 async def analytics_daily(days: int = 30) -> DailyAnalyticsReport:
-    """All-channel daily digest. Called by the n8n analytics workflow."""
+    """All-channel daily digest (structured JSON, for the Google Sheets append).
+    Called by the n8n analytics workflow."""
     channels = channel_registry.list_slugs()
     return await asyncio.to_thread(analytics_svc.build_daily_report, channels, days)
+
+
+class DigestResponse(BaseModel):
+    text: str
+
+
+# Declared BEFORE /{channel} so the wildcard doesn't capture "analytics".
+@app.get("/analytics/daily/digest", response_model=DigestResponse)
+async def analytics_daily_digest(days: int = 30) -> DigestResponse:
+    """The all-channel digest pre-rendered as the Telegram/Slack message body.
+    The n8n Code node forwards this string verbatim — formatting lives here so
+    it stays unit-tested."""
+    channels = channel_registry.list_slugs()
+    report = await asyncio.to_thread(analytics_svc.build_daily_report, channels, days)
+    return DigestResponse(text=analytics_svc.render_digest(report))
 
 
 # NOTE: must stay declared AFTER /analytics/daily — otherwise the {channel}
