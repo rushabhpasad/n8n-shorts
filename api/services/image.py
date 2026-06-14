@@ -1,17 +1,23 @@
-"""Image gen — Z-Image-Turbo via mflux (MLX, Apple Silicon).
+"""Image gen — hosted Z-Image-Turbo Space first, local mflux as fallback.
 
-Generates one image per entry in script.image_prompts. Count is variable
-(5–7 per the script schema). Sequential — model can't run two diffusions
-concurrently on a single GPU.
+Backends (settings.image_backend):
+  - "space": call the hosted Z-Image-Turbo Gradio Space (free ZeroGPU,
+    ~12s/image, zero local RAM). On ANY failure for an image (GPU quota,
+    network, server error) fall back to local mflux for that image, so a run
+    always completes.
+  - "mflux": local MLX generation only (Apple Silicon).
 
-Lazy-loaded module-global model. First call downloads ~15GB from
-Tongyi-MAI/Z-Image-Turbo. Subsequent calls just generate.
+The local mflux model is lazy-loaded ONLY when a fallback is actually needed,
+so the "space" path never pays the ~28GB unified-memory cost unless it has to.
 
-We invoke from FastAPI via asyncio.to_thread so the event loop stays free.
+mflux notes: model is z-image-turbo (Tongyi/Alibaba). First local use downloads
+~15GB from Tongyi-MAI/Z-Image-Turbo. We invoke from FastAPI via
+asyncio.to_thread so the event loop stays free.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
 from pathlib import Path
@@ -39,6 +45,7 @@ def _get_model():
             settings.mflux_quantize,
         )
 
+        import mlx.core as mx
         from mflux.models.common.config import ModelConfig
         from mflux.models.z_image.variants.z_image import ZImage
 
@@ -46,6 +53,11 @@ def _get_model():
             model_config=ModelConfig.z_image_turbo(),
             quantize=settings.mflux_quantize,
         )
+        # MLX keeps an unbounded buffer cache by default; cap it (we also clear
+        # between renders in _render_mflux) so a multi-image run stays near the
+        # resident model size instead of ballooning the compressor.
+        mx.set_cache_limit(settings.mflux_cache_limit_bytes)
+        mx.reset_peak_memory()
         log.info("ZImage loaded and resident")
 
     return _model
@@ -64,7 +76,7 @@ def _clear_stale_images(output_dir: Path, word_id: int) -> int:
     """Remove pre-existing word_<id>_*.png before a re-run.
 
     A regenerated script can produce a different image count than a prior run
-    (the new per-beat schema makes this common), so old renders would otherwise
+    (the per-beat schema makes this common), so old renders would otherwise
     linger on disk — confusing to debug and wasted space. Returns the count
     removed. Only touches this word's PNGs; other files are left alone.
     """
@@ -75,8 +87,86 @@ def _clear_stale_images(output_dir: Path, word_id: int) -> int:
     return removed
 
 
+def _generate_via_space(prompt: str, width: int, height: int, steps: int, seed: int) -> bytes:
+    """Generate one image via the hosted Z-Image-Turbo Gradio Space.
+
+    Returns PNG bytes. Raises on quota/network/server error so the caller can
+    fall back to local mflux. Uses the Gradio two-step call protocol: POST the
+    inputs to get an event id, then stream the result event for the image URL.
+    """
+    import httpx
+
+    base = settings.zimage_space_url.rstrip("/")
+    headers = {"Content-Type": "application/json"}
+    if settings.hf_token:
+        headers["Authorization"] = f"Bearer {settings.hf_token}"
+
+    # Gradio /generate_image arg order: [prompt, height, width, steps, seed, random_seed]
+    payload = {"data": [prompt, height, width, steps, seed, False]}
+
+    with httpx.Client(timeout=settings.zimage_space_timeout_s) as client:
+        post = client.post(
+            f"{base}/gradio_api/call/generate_image", headers=headers, json=payload
+        )
+        post.raise_for_status()
+        event_id = post.json().get("event_id")
+        if not event_id:
+            raise RuntimeError(f"no event_id from space: {post.text[:200]}")
+
+        result_url = None
+        with client.stream(
+            "GET", f"{base}/gradio_api/call/generate_image/{event_id}", headers=headers
+        ) as resp:
+            resp.raise_for_status()
+            event = None
+            for line in resp.iter_lines():
+                if not line:
+                    continue
+                if line.startswith("event:"):
+                    event = line[6:].strip()
+                elif line.startswith("data:"):
+                    data = line[5:].strip()
+                    if event == "error":
+                        raise RuntimeError(f"space error: {data[:200]}")
+                    if event == "complete":
+                        result_url = json.loads(data)[0]["url"]
+                        break
+        if not result_url:
+            raise RuntimeError("space returned no image url")
+
+        img = client.get(result_url, headers=headers)
+        img.raise_for_status()
+        return img.content
+
+
+def _render_mflux(model, prompt: str, seed: int, out_path: Path) -> None:
+    """Render one image locally via mflux and save it, releasing GPU buffers."""
+    import gc
+
+    import mlx.core as mx
+    from mflux.utils.image_util import ImageUtil
+
+    image = model.generate_image(
+        seed=seed,
+        prompt=prompt,
+        negative_prompt="",
+        width=settings.mflux_width,
+        height=settings.mflux_height,
+        guidance=settings.mflux_guidance,
+        num_inference_steps=settings.mflux_steps,
+        scheduler=settings.mflux_scheduler,
+    )
+    ImageUtil.save_image(image=image, path=str(out_path))
+    del image
+    gc.collect()
+    mx.clear_cache()
+
+
 def generate_images(script: Script, output_dir: Path, word_id: int) -> list[dict]:
-    """Generate len(script.image_prompts) PNGs (4–7) into output_dir."""
+    """Generate len(script.image_prompts) PNGs (4–7) into output_dir.
+
+    Per-image: try the configured backend; if "space" fails, fall back to mflux.
+    """
     n = len(script.image_prompts)
     if n < 1:
         raise ValueError("script has no image_prompts")
@@ -86,61 +176,55 @@ def generate_images(script: Script, output_dir: Path, word_id: int) -> list[dict
     if stale:
         log.info("cleared %d stale image(s) for word_id=%d", stale, word_id)
 
-    model = _get_model()
-
-    import gc
-
-    import mlx.core as mx
-    from mflux.utils.image_util import ImageUtil
-
-    # MLX keeps an unbounded buffer cache by default, so a sequential N-image
-    # run accumulates freed GPU buffers and balloons unified-memory use (~28GB
-    # observed), thrashing the compressor. Cap the cache and clear it between
-    # images so the footprint stays near the resident model size.
-    mx.set_cache_limit(settings.mflux_cache_limit_bytes)
-    mx.reset_peak_memory()
+    backend = settings.image_backend
+    width, height, steps = settings.mflux_width, settings.mflux_height, settings.mflux_steps
+    mflux_model = None  # lazy — only loaded if a fallback is actually needed
 
     results: list[dict] = []
+    backends_used: list[str] = []
     for i, prompt in enumerate(script.image_prompts):
         out_path = output_dir / f"word_{word_id:04d}_{i}.png"
         seed = settings.mflux_seed_base + i
-        log.info(
-            "[%d/%d] generate seed=%d %dx%d steps=%d guidance=%.1f → %s",
-            i + 1, n, seed,
-            settings.mflux_width, settings.mflux_height,
-            settings.mflux_steps, settings.mflux_guidance,
-            out_path.name,
-        )
-        image = model.generate_image(
-            seed=seed,
-            prompt=prompt,
-            negative_prompt="",
-            width=settings.mflux_width,
-            height=settings.mflux_height,
-            guidance=settings.mflux_guidance,
-            num_inference_steps=settings.mflux_steps,
-            scheduler=settings.mflux_scheduler,
-        )
-        ImageUtil.save_image(image=image, path=str(out_path))
+        used: str | None = None
 
+        if backend == "space":
+            try:
+                log.info(
+                    "[%d/%d] space generate seed=%d %dx%d steps=%d → %s",
+                    i + 1, n, seed, width, height, steps, out_path.name,
+                )
+                out_path.write_bytes(_generate_via_space(prompt, width, height, steps, seed))
+                used = "space"
+            except Exception as e:
+                log.warning(
+                    "[%d/%d] space backend failed (%s) — falling back to mflux",
+                    i + 1, n, str(e)[:200],
+                )
+
+        if used is None:
+            if mflux_model is None:
+                mflux_model = _get_model()
+            log.info(
+                "[%d/%d] mflux generate seed=%d %dx%d steps=%d → %s",
+                i + 1, n, seed, width, height, steps, out_path.name,
+            )
+            _render_mflux(mflux_model, prompt, seed, out_path)
+            used = "mflux"
+
+        backends_used.append(used)
         results.append({
             "image_idx": i,
             "image_path": str(out_path),
             "prompt": prompt,
             "seed": seed,
-            "width": settings.mflux_width,
-            "height": settings.mflux_height,
-            "steps": settings.mflux_steps,
+            "width": width,
+            "height": height,
+            "steps": steps,
             "size_bytes": out_path.stat().st_size,
         })
 
-        # Return this image's buffers to the OS before the next diffusion pass.
-        del image
-        gc.collect()
-        mx.clear_cache()
-
     log.info(
-        "image gen done: %d images, peak MLX memory %.2f GB",
-        n, mx.get_peak_memory() / 1e9,
+        "image gen done: %d images (space=%d mflux=%d)",
+        n, backends_used.count("space"), backends_used.count("mflux"),
     )
     return results
