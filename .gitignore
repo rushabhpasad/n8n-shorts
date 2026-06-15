@@ -21,6 +21,9 @@ secrets/
 api/.env
 *.token.json
 *_token.json
+# ...but track the env template (no real secrets in it)
+!.env.example
+!api/.env.example
 *_oauth.json
 .mcp.json
 
