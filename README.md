@@ -26,7 +26,7 @@ pipeline produces a 1080×1920 vertical short with:
 - **Branded outro card** (SUBSCRIBE pill + LIKE / SHARE / BELL pills) during the spoken CTA
 - **YouTube upload** as private by default; you flip to public after review
 
-Wall-clock per video: ~5–10 min with the default Space backend (~12 s/image via hosted ZeroGPU). The local mflux fallback path is ~5 min/image on an M1 Max. Daily cron via n8n.
+Wall-clock per video: ~5–10 min with the default Space backend (~10–15 s/image via hosted ZeroGPU). The local mflux fallback path is ~5 min/image on an M1 Max. Daily cron via n8n.
 
 ## Architecture
 
@@ -99,16 +99,18 @@ done
 ## Image backend configuration
 
 By default the pipeline uses the hosted Z-Image-Turbo Gradio Space on Hugging
-Face (free ZeroGPU, ~12 s/image, zero local RAM). Create `api/.env` (gitignored)
-to tune it:
+Face (free ZeroGPU, ~10–15 s/image, zero local RAM), called via the official
+`gradio_client`. Create `api/.env` (gitignored) to tune it:
 
 ```bash
 # api/.env
-# HF_TOKEN raises your ZeroGPU quota:
-#   anonymous  ~2 min GPU/day  (may cover 1 channel)
-#   free acct  ~3.5–5 min/day  (2–3 channels)
-#   HF Pro     ~8× free        (all 4 channels)
-# The local mflux fallback absorbs any quota overflow automatically.
+# HF_TOKEN is passed to gradio_client as token=, which bills ZeroGPU usage to
+# your account quota (the raw REST API does NOT — it stays on the per-IP pool).
+# Daily ZeroGPU quota by tier (~10–15 s/image):
+#   anonymous  ~2 min/day   (~1 channel)
+#   free acct  ~5 min/day   (covers a daily 4-channel run, ~20–25 images)
+#   HF Pro     40 min/day   (ample headroom)
+# The local mflux fallback absorbs any tail once the quota runs low.
 HF_TOKEN=hf_...
 
 # Switch to local-only generation (Apple Silicon required):

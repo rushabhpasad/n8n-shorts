@@ -115,11 +115,21 @@ to switch back, set `HF_TOKEN` env var, accept the licence on the HF page in
 a browser first.
 
 `HF_TOKEN` is **also** the primary auth token for the hosted Z-Image-Turbo
-Gradio Space (`image_backend = "space"`). Anonymous Space calls get ~2 min
-ZeroGPU GPU/day; a free HF account with `HF_TOKEN` set gets ~3.5–5 min/day
-(enough for 2–3 of the 4 channels); an HF Pro account gets ~8× that, covering
-all four. Set it in `api/.env` (gitignored). The mflux fallback absorbs any
-quota overflow automatically.
+Gradio Space (`image_backend = "space"`). ZeroGPU quota is **daily, per
+account**: anonymous ~2 min/day, free account ~5 min/day, HF Pro 40 min/day
+(`https://huggingface.co/docs/hub/spaces-zerogpu`). Actual GPU time is
+~10–15 s/image, so a free account's 5 min comfortably covers a daily
+4-channel run (~20–25 images); the mflux fallback absorbs the tail if the
+quota runs low. Set the token in `api/.env` (gitignored).
+
+**Quota attribution requires the official `gradio_client`, not a raw header.**
+We call the Space through `gradio_client.Client(url, token=HF_TOKEN)`
+(`_get_space_client()` in `services/image.py`), which performs the
+`queue/join` handshake ZeroGPU uses to bill the account. A hand-rolled
+`Authorization: Bearer` header on the raw `/gradio_api/call/...` REST endpoint
+does **not** get the account quota — it returns an opaque `error: null` once
+the shared per-IP pool is spent. Note the constructor kwarg is `token=` in
+`gradio_client` 2.x (older docs say `hf_token=`).
 
 ### 2.10 Piper voice licences matter for monetised YouTube
 
@@ -156,7 +166,7 @@ download function in the project should use the same pattern.
 
 Qwen-Image and FLUX.2-klein-9B benchmarked at ~40 s/step × 25 steps × 5
 images ≈ 50 min/video on an M1 Max. Z-Image-Turbo via the hosted Space backend
-takes ~12 s/image (ZeroGPU, zero local RAM), giving roughly 1–2 min of image
+takes ~10–15 s/image (ZeroGPU, zero local RAM), giving roughly 1–2 min of image
 generation per video in normal operation. The mflux local fallback path is
 significantly slower: ~5 min/image on an M1 Max (the z-image-turbo transformer
 is ~23 GB; a single 768×1344 render requires ~28 GB unified memory and thrashes
@@ -168,10 +178,11 @@ you're debugging or have no network.
 `api/config.py` `image_backend` controls which path `services/image.py` takes:
 
 - **`"space"` (default)** — calls the hosted Z-Image-Turbo Gradio Space on
-  Hugging Face (`zimage_space_url`, default `https://mrfakename-z-image-turbo.hf.space`).
-  Free ZeroGPU; ~12 s/image; zero local RAM. Per-image automatic fallback to
-  local mflux on ANY failure (GPU quota exceeded, network error, server error),
-  so a run always completes even when the Space is unavailable.
+  Hugging Face (`zimage_space_url`, default `https://mrfakename-z-image-turbo.hf.space`)
+  via `gradio_client.Client(url, token=HF_TOKEN)`. Free ZeroGPU; ~10–15 s/image;
+  zero local RAM. Per-image automatic fallback to local mflux on ANY failure
+  (GPU quota exceeded, network error, server error), so a run always completes
+  even when the Space is unavailable or the daily quota is spent.
 - **`"mflux"`** — local MLX generation only. Use when you want deterministic
   local runs or are offline.
 
@@ -184,9 +195,9 @@ Relevant config knobs (all in `api/config.py`, env-overridable):
 | Setting | Default | Notes |
 |---|---|---|
 | `image_backend` | `"space"` | `"space"` or `"mflux"` |
-| `zimage_space_url` | `https://mrfakename-z-image-turbo.hf.space` | Gradio Space endpoint |
-| `zimage_space_timeout_s` | `180` | Per-image Space call timeout |
-| `hf_token` | `None` | Set via `HF_TOKEN` in `api/.env`; raises ZeroGPU quota |
+| `zimage_space_url` | `https://mrfakename-z-image-turbo.hf.space` | Gradio Space endpoint (passed to `gradio_client.Client`) |
+| `zimage_space_timeout_s` | `180` | Timeout for the URL-fallback fetch when the Space returns a remote image dict |
+| `hf_token` | `None` | Set via `HF_TOKEN` in `api/.env`; passed as `token=` to `gradio_client` so ZeroGPU usage bills the account (5 min/day free) |
 | `mflux_cache_limit_bytes` | `1 GiB` | Caps MLX GPU-buffer cache; `mx.clear_cache()` called between mflux renders |
 
 ## 3. Files where the most damage happens
@@ -206,6 +217,7 @@ These are the high-impact files. Read carefully, change with intent.
 | `n8n/generate.py` | Per-channel workflow generator. Reads every `channels/<slug>/channel.json` and writes `n8n/workflows/<slug>.json`. | Run, then re-import each workflow into n8n. |
 | `channels/<slug>/brand.json` | Channel icon prompts. Edit the `brand_concept` / `color_palette` / `icon_prompts` to redesign the channel's visual mark. | `uv run --project api scripts/gen_brand.py --channel <slug> --only <prompt-name>` and view the PNG. |
 | `scripts/gen_brand.py` | Renders icon candidates from a channel's `brand.json`. Already calls `unlink()` before `save_image` so the §2.1 mflux landmine is dodged here. | Run with `--only` for a single candidate. |
+| `scripts/merge_candidates.py` | Merges web-verified candidate JSON files (`{"candidates": [...]}`) into a channel's `words.csv`: dedupes case-insensitively on the subject column against the existing queue and within the batch, continues ids from the current max, optionally trims to `--target` (lowest `priority` first), and appends with CSV quoting. | `merge_candidates.py --channel <slug> --workdir <dir> [--target N]` for a dry run; add `--apply` to write. |
 
 ## 4. Conventions
 

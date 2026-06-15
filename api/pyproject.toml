@@ -15,6 +15,10 @@ dependencies = [
     # External calls / async — pinned <1.0 because the 1.x dev line moved AsyncClient
     "httpx>=0.28,<1.0",
 
+    # Hosted Z-Image-Turbo Space client. Used over raw REST so the queue/join
+    # handshake attributes ZeroGPU usage to the account's quota (token=).
+    "gradio-client>=1.3",
+
     # Image generation (Apple Silicon native, MLX-backed Flux)
     "mflux>=0.5.1",
 
