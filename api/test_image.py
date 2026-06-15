@@ -1,6 +1,11 @@
 """Tests for image-service helpers that don't require the GPU/mflux stack."""
 
-from services.image import _clear_stale_images
+import services.image as image
+from services.image import (
+    _clear_stale_images,
+    _generate_via_space,
+    _image_bytes_from_result,
+)
 
 
 def test_clear_stale_images_removes_only_target_word(tmp_path):
@@ -21,3 +26,46 @@ def test_clear_stale_images_removes_only_target_word(tmp_path):
 
 def test_clear_stale_images_when_none_present(tmp_path):
     assert _clear_stale_images(tmp_path, 9) == 0
+
+
+def test_image_bytes_from_result_local_path_string(tmp_path):
+    png = tmp_path / "out.png"
+    png.write_bytes(b"PNGDATA")
+    # gradio_client downloads file outputs and returns (local_path, seed)
+    assert _image_bytes_from_result((str(png), 42)) == b"PNGDATA"
+
+
+def test_image_bytes_from_result_filedata_dict(tmp_path):
+    png = tmp_path / "out.png"
+    png.write_bytes(b"DICTPNG")
+    result = ({"path": str(png), "url": "https://x/y.png"}, 42)
+    assert _image_bytes_from_result(result) == b"DICTPNG"
+
+
+def test_image_bytes_from_result_raises_when_empty():
+    import pytest
+
+    with pytest.raises(RuntimeError):
+        _image_bytes_from_result(("", 42))
+
+
+def test_generate_via_space_passes_height_width_order(tmp_path, monkeypatch):
+    png = tmp_path / "img.png"
+    png.write_bytes(b"OK")
+    calls = {}
+
+    class FakeClient:
+        def predict(self, *args, **kwargs):
+            calls["args"] = args
+            calls["kwargs"] = kwargs
+            return (str(png), 7)
+
+    monkeypatch.setattr(image, "_get_space_client", lambda: FakeClient())
+
+    # caller passes (prompt, width, height, steps, seed); the Space expects
+    # height BEFORE width, so the predict args must be reordered.
+    out = _generate_via_space("a prompt", 768, 1344, 8, 7)
+
+    assert out == b"OK"
+    assert calls["args"] == ("a prompt", 1344, 768, 8, 7, False)
+    assert calls["kwargs"] == {"api_name": "/generate_image"}

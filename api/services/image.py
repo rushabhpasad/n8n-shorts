@@ -17,7 +17,6 @@ asyncio.to_thread so the event loop stays free.
 
 from __future__ import annotations
 
-import json
 import logging
 import threading
 from pathlib import Path
@@ -87,56 +86,77 @@ def _clear_stale_images(output_dir: Path, word_id: int) -> int:
     return removed
 
 
+_space_client = None
+_space_client_lock = threading.Lock()
+
+
+def _get_space_client():
+    """Lazily build and cache a gradio_client.Client for the Z-Image Space.
+
+    Passing the HF token via `token=` routes ZeroGPU usage to the account's
+    daily quota (free 5 min, PRO 40 min) instead of the anonymous per-IP pool
+    (2 min). The client performs the queue/join handshake that the raw
+    `/gradio_api/call` REST protocol does not — that handshake is what the
+    quota attribution relies on, so a hand-rolled Bearer header on the REST
+    endpoint never gets the account quota. Imported lazily so the module loads
+    without gradio_client present (e.g. in unit tests).
+    """
+    global _space_client
+    if _space_client is not None:
+        return _space_client
+
+    with _space_client_lock:
+        if _space_client is None:
+            from gradio_client import Client
+
+            log.info("connecting gradio_client to %s (authenticated=%s)",
+                     settings.zimage_space_url, bool(settings.hf_token))
+            _space_client = Client(
+                settings.zimage_space_url,
+                token=settings.hf_token or None,
+                verbose=False,
+            )
+    return _space_client
+
+
+def _image_bytes_from_result(result) -> bytes:
+    """Extract PNG bytes from a /generate_image predict result.
+
+    The Space returns `(generated_image, seed)`. gradio_client downloads file
+    outputs to a temp dir and usually hands back a local path string; depending
+    on version it may instead return the raw FileData dict (path/url).
+    """
+    image = result[0] if isinstance(result, (list, tuple)) else result
+    if isinstance(image, dict):
+        local = image.get("path")
+        if local and Path(local).exists():
+            return Path(local).read_bytes()
+        url = image.get("url")
+        if url:
+            import httpx
+
+            resp = httpx.get(url, timeout=settings.zimage_space_timeout_s)
+            resp.raise_for_status()
+            return resp.content
+        raise RuntimeError(f"space image dict has no path/url: {image!r}")
+    if not image:
+        raise RuntimeError(f"space returned no image: {result!r}")
+    return Path(image).read_bytes()
+
+
 def _generate_via_space(prompt: str, width: int, height: int, steps: int, seed: int) -> bytes:
-    """Generate one image via the hosted Z-Image-Turbo Gradio Space.
+    """Generate one image via the hosted Z-Image-Turbo Space using gradio_client.
 
     Returns PNG bytes. Raises on quota/network/server error so the caller can
-    fall back to local mflux. Uses the Gradio two-step call protocol: POST the
-    inputs to get an event id, then stream the result event for the image URL.
+    fall back to local mflux.
     """
-    import httpx
-
-    base = settings.zimage_space_url.rstrip("/")
-    headers = {"Content-Type": "application/json"}
-    if settings.hf_token:
-        headers["Authorization"] = f"Bearer {settings.hf_token}"
-
-    # Gradio /generate_image arg order: [prompt, height, width, steps, seed, random_seed]
-    payload = {"data": [prompt, height, width, steps, seed, False]}
-
-    with httpx.Client(timeout=settings.zimage_space_timeout_s) as client:
-        post = client.post(
-            f"{base}/gradio_api/call/generate_image", headers=headers, json=payload
-        )
-        post.raise_for_status()
-        event_id = post.json().get("event_id")
-        if not event_id:
-            raise RuntimeError(f"no event_id from space: {post.text[:200]}")
-
-        result_url = None
-        with client.stream(
-            "GET", f"{base}/gradio_api/call/generate_image/{event_id}", headers=headers
-        ) as resp:
-            resp.raise_for_status()
-            event = None
-            for line in resp.iter_lines():
-                if not line:
-                    continue
-                if line.startswith("event:"):
-                    event = line[6:].strip()
-                elif line.startswith("data:"):
-                    data = line[5:].strip()
-                    if event == "error":
-                        raise RuntimeError(f"space error: {data[:200]}")
-                    if event == "complete":
-                        result_url = json.loads(data)[0]["url"]
-                        break
-        if not result_url:
-            raise RuntimeError("space returned no image url")
-
-        img = client.get(result_url, headers=headers)
-        img.raise_for_status()
-        return img.content
+    client = _get_space_client()
+    # /generate_image arg order: prompt, height, width, num_inference_steps,
+    # seed, randomize_seed.
+    result = client.predict(
+        prompt, height, width, steps, seed, False, api_name="/generate_image"
+    )
+    return _image_bytes_from_result(result)
 
 
 def _render_mflux(model, prompt: str, seed: int, out_path: Path) -> None:
