@@ -64,3 +64,24 @@ def test_record_video_snapshot_is_idempotent_per_day(monkeypatch, tmp_path):
             "SELECT views FROM video_snapshots WHERE channel='wordstrata' AND video_id='v1'"
         ).fetchall()
     assert len(rows) == 1 and rows[0]["views"] == 200  # upsert, latest wins
+
+
+def test_video_stat_row_and_report_models():
+    from models import VideoStatRow, ChannelVideoStats, VideoStatsReport
+    row = VideoStatRow(
+        date="2026-06-17", video_id="v1",
+        url="https://www.youtube.com/shorts/v1", title="Etymology of OK",
+        published_at="2026-06-10T09:00:00Z", days_live=7,
+        views_total=180, views_today=80, likes_total=15, likes_today=5,
+        comments_total=3, comments_today=1, watch_min_total=55, watch_min_today=25,
+        shares_total=9, shares_today=4,
+    )
+    report = VideoStatsReport(
+        date="2026-06-17",
+        channels=[ChannelVideoStats(channel="wordstrata", rows=[row])],
+        errors=[],
+    )
+    assert report.channels[0].rows[0].views_today == 80
+    assert report.channels[0].channel == "wordstrata"
+    # defaults
+    assert VideoStatsReport(date="2026-06-17", channels=[]).errors == []
