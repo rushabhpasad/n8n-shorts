@@ -153,7 +153,12 @@ def make_workflow(slug: str, display_name: str, cron: str) -> dict:
                 "jsCode": (
                     "const up = $input.first().json || {};\n"
                     "const word = ($('Get next word').item && $('Get next word').item.json) || {};\n"
-                    "const title = word.word || word.title || (\"word \" + (up.word_id ?? \"\"));\n"
+                    # Telegram sends with parse_mode=HTML, so HTML-escape the dynamic title.
+                    # URLs are safe in HTML mode; the original 400 was an unescaped '_' in the
+                    # YouTube URL under the node's legacy Markdown default (HTML treats '_'/'*'
+                    # as literal, so the video URL no longer opens a phantom entity).
+                    "const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\n"
+                    "const title = esc(word.word || word.title || (\"word \" + (up.word_id ?? \"\")));\n"
                     f"return [{{ json: {{ text: `✅ {display_name} — uploaded \"${{title}}\"${{up.url ? \"\\n\" + up.url : \"\"}}` }} }}];"
                 ),
             },
@@ -169,7 +174,9 @@ def make_workflow(slug: str, display_name: str, cron: str) -> dict:
                 "operation": "sendMessage",
                 "chatId": TELEGRAM_CHAT_ID,
                 "text": "={{ $json.text }}",
-                "additionalFields": {"appendAttribution": False},
+                # parse_mode pinned to HTML: the node's instance default was legacy Markdown,
+                # under which a '_' in the YouTube video URL opened an unterminated entity → 400.
+                "additionalFields": {"appendAttribution": False, "parse_mode": "HTML"},
             },
             "credentials": {"telegramApi": TELEGRAM_CRED},
         },

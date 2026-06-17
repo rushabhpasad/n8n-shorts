@@ -202,7 +202,7 @@
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const up = $input.first().json || {};\nconst word = ($('Get next word').item && $('Get next word').item.json) || {};\nconst title = word.word || word.title || (\"word \" + (up.word_id ?? \"\"));\nreturn [{ json: { text: `\u2705 The Mythscape \u2014 uploaded \"${title}\"${up.url ? \"\\n\" + up.url : \"\"}` } }];"
+        "jsCode": "const up = $input.first().json || {};\nconst word = ($('Get next word').item && $('Get next word').item.json) || {};\nconst esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst title = esc(word.word || word.title || (\"word \" + (up.word_id ?? \"\")));\nreturn [{ json: { text: `\u2705 The Mythscape \u2014 uploaded \"${title}\"${up.url ? \"\\n\" + up.url : \"\"}` } }];"
       }
     },
     {
@@ -220,7 +220,8 @@
         "chatId": "3819613",
         "text": "={{ $json.text }}",
         "additionalFields": {
-          "appendAttribution": false
+          "appendAttribution": false,
+          "parse_mode": "HTML"
         }
       },
       "credentials": {
