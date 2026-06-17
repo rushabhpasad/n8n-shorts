@@ -37,6 +37,11 @@ _PERIOD_METRICS = (
     "views,likes,comments,averageViewDuration,shares,averageViewPercentage"
 )
 _VIDEOS_BATCH = 50  # Data API videos.list id cap
+_VIDEO_ANALYTICS_BATCH = 200  # video== filter id cap is 500; 200 keeps rows == ids
+
+# Per-video Analytics column order (after the `video` dimension key) — keep
+# parsing in lockstep with the row indexing in video_period_metrics.
+_VIDEO_METRICS = "estimatedMinutesWatched,shares"
 
 # (#2) The insightTrafficSourceType value for the Shorts feed.
 _SHORTS_TRAFFIC_SOURCE = "SHORTS"
@@ -153,6 +158,39 @@ def video_details(channel: str, video_ids: list[str], *, client=None) -> dict[st
                 "title": sn.get("title", ""),
                 "published_at": sn.get("publishedAt", ""),
             }
+    return out
+
+
+def video_period_metrics(
+    channel: str, start: str, end: str, video_ids: list[str], *, client=None,
+) -> dict[str, dict]:
+    """Per-video cumulative watch_minutes + shares over [start, end], keyed by
+    video id. Filter is batched by 200 ids. Videos absent from the response
+    (e.g. brand-new, no Analytics data yet) are simply omitted — the caller
+    defaults them to 0.
+
+    `maxResults` caps each batch at the batch size; since the `video==` filter
+    bounds results to the batched ids, rows == ids and nothing is truncated. If
+    the batch size were ever raised past the response cap this would silently
+    drop rows — keep `_VIDEO_ANALYTICS_BATCH` at or below the API row limit."""
+    if not video_ids:
+        return {}
+    ya = client or _analytics_client(channel)
+    out: dict[str, dict] = {}
+    for i in range(0, len(video_ids), _VIDEO_ANALYTICS_BATCH):
+        batch = video_ids[i:i + _VIDEO_ANALYTICS_BATCH]
+        resp = ya.reports().query(
+            ids="channel==MINE",
+            startDate=start,
+            endDate=end,
+            metrics=_VIDEO_METRICS,
+            dimensions="video",
+            filters="video==" + ",".join(batch),
+            maxResults=_VIDEO_ANALYTICS_BATCH,
+        ).execute()
+        # row = [videoId, *_VIDEO_METRICS] → [videoId, watch_minutes, shares]
+        for row in (resp.get("rows") or []):
+            out[str(row[0])] = {"watch_minutes": int(row[1]), "shares": int(row[2])}
     return out
 
 

@@ -112,3 +112,27 @@ def test_video_details_parses_snippet_and_statistics():
 def test_video_details_empty_returns_empty():
     from services import analytics
     assert analytics.video_details("wordstrata", [], client=MagicMock()) == {}
+
+
+def test_video_period_metrics_parses_rows():
+    from services import analytics
+    ya = MagicMock()
+    ya.reports.return_value.query.return_value.execute.return_value = {
+        "rows": [["v1", 55, 9], ["v2", 12, 1]]
+    }
+    out = analytics.video_period_metrics(
+        "wordstrata", "2026-06-01", "2026-06-17", ["v1", "v2"], client=ya)
+    assert out["v1"] == {"watch_minutes": 55, "shares": 9}
+    assert out["v2"] == {"watch_minutes": 12, "shares": 1}
+    _, kwargs = ya.reports.return_value.query.call_args
+    assert kwargs["dimensions"] == "video"
+    assert kwargs["metrics"] == "estimatedMinutesWatched,shares"
+    assert kwargs["filters"] == "video==v1,v2"
+
+
+def test_video_period_metrics_empty_and_missing_rows():
+    from services import analytics
+    assert analytics.video_period_metrics("wordstrata", "a", "b", [], client=MagicMock()) == {}
+    ya = MagicMock()
+    ya.reports.return_value.query.return_value.execute.return_value = {}  # no rows key
+    assert analytics.video_period_metrics("wordstrata", "a", "b", ["v1"], client=ya) == {}
