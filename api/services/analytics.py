@@ -19,12 +19,14 @@ import db
 from models import (
     ChannelAnalytics,
     ChannelSnapshot,
+    ChannelVideoStats,
     CountryViews,
     DailyAnalyticsReport,
     PeriodMetrics,
     TopVideo,
     TrendDelta,
     VideoAnalytics,
+    VideoStatRow,
     YppProgress,
 )
 from services.youtube import credentials
@@ -192,6 +194,73 @@ def video_period_metrics(
         for row in (resp.get("rows") or []):
             out[str(row[0])] = {"watch_minutes": int(row[1]), "shares": int(row[2])}
     return out
+
+
+def _delta(today_cumulative: int, prior: dict | None, key: str) -> int:
+    """Daily delta vs the prior snapshot; == cumulative on the first snapshot.
+    Clamped at 0 so a deleted-then-recounted edge case never shows negative."""
+    if prior is None:
+        return today_cumulative
+    return max(0, today_cumulative - int(prior[key]))
+
+
+def _days_live(published_at: str, snapshot_date: str) -> int:
+    if not published_at:
+        return 0
+    published = date.fromisoformat(published_at[:10])
+    return max(0, (date.fromisoformat(snapshot_date) - published).days)
+
+
+def channel_video_stats(
+    channel: str,
+    *,
+    today: date | None = None,
+    data_client=None,
+    analytics_client=None,
+) -> ChannelVideoStats:
+    """Per-video rows for one channel: cumulative totals (Data + Analytics APIs)
+    plus daily deltas vs the prior stored snapshot. Persists today's snapshot."""
+    today = today or date.today()
+    snapshot_date = today.isoformat()
+    video_ids = db.uploaded_video_ids(channel)
+    if not video_ids:
+        return ChannelVideoStats(channel=channel, rows=[])
+
+    details = video_details(channel, video_ids, client=data_client)
+    # Analytics window starts at the earliest publish date we know about.
+    publish_dates = [d["published_at"][:10] for d in details.values() if d.get("published_at")]
+    start = min(publish_dates) if publish_dates else snapshot_date
+    period = video_period_metrics(
+        channel, start, snapshot_date, video_ids, client=analytics_client)
+
+    rows: list[VideoStatRow] = []
+    for vid in video_ids:
+        d = details.get(vid)
+        if d is None:
+            continue  # video deleted/private since upload — skip, no row
+        a = period.get(vid, {"watch_minutes": 0, "shares": 0})
+        prior = db.video_snapshot_before(channel, vid, snapshot_date)
+        views, likes, comments = d["views"], d["likes"], d["comments"]
+        watch, shares = a["watch_minutes"], a["shares"]
+        rows.append(VideoStatRow(
+            date=snapshot_date,
+            video_id=vid,
+            url=f"https://www.youtube.com/shorts/{vid}",
+            title=d["title"],
+            published_at=d["published_at"],
+            days_live=_days_live(d["published_at"], snapshot_date),
+            views_total=views, views_today=_delta(views, prior, "views"),
+            likes_total=likes, likes_today=_delta(likes, prior, "likes"),
+            comments_total=comments, comments_today=_delta(comments, prior, "comments"),
+            watch_min_total=watch, watch_min_today=_delta(watch, prior, "watch_minutes"),
+            shares_total=shares, shares_today=_delta(shares, prior, "shares"),
+        ))
+        db.record_video_snapshot(
+            channel, vid, snapshot_date=snapshot_date,
+            views=views, likes=likes, comments=comments,
+            watch_minutes=watch, shares=shares,
+        )
+    return ChannelVideoStats(channel=channel, rows=rows)
 
 
 def traffic_sources(channel: str, start: str, end: str, *, client=None) -> dict[str, int]:

@@ -136,3 +136,111 @@ def test_video_period_metrics_empty_and_missing_rows():
     ya = MagicMock()
     ya.reports.return_value.query.return_value.execute.return_value = {}  # no rows key
     assert analytics.video_period_metrics("wordstrata", "a", "b", ["v1"], client=ya) == {}
+
+
+def _detail(views, likes, comments, title="t", published="2026-06-10T09:00:00Z"):
+    return {"views": views, "likes": likes, "comments": comments,
+            "title": title, "published_at": published}
+
+
+def test_channel_video_stats_first_snapshot_delta_equals_total(monkeypatch, tmp_path):
+    import db
+    from services import analytics
+    monkeypatch.setattr(db.settings, "db_path", tmp_path / "t.db")
+    db.init_schema()
+
+    monkeypatch.setattr(analytics.db, "uploaded_video_ids", lambda ch: ["v1"])
+    monkeypatch.setattr(analytics, "video_details",
+                        lambda ch, ids, *, client=None: {"v1": _detail(180, 15, 3)})
+    monkeypatch.setattr(analytics, "video_period_metrics",
+                        lambda ch, s, e, ids, *, client=None: {"v1": {"watch_minutes": 55, "shares": 9}})
+
+    cvs = analytics.channel_video_stats(
+        "wordstrata", today=date(2026, 6, 17),
+        data_client=MagicMock(), analytics_client=MagicMock())
+
+    assert cvs.channel == "wordstrata"
+    r = cvs.rows[0]
+    assert (r.views_total, r.views_today) == (180, 180)        # first snapshot
+    assert (r.watch_min_total, r.watch_min_today) == (55, 55)
+    assert (r.shares_total, r.shares_today) == (9, 9)
+    assert r.url == "https://www.youtube.com/shorts/v1"
+    assert r.days_live == 7                                    # 06-10 -> 06-17
+    # snapshot persisted for tomorrow's delta
+    assert db.video_snapshot_before("wordstrata", "v1", "2026-06-18")["views"] == 180
+
+
+def test_channel_video_stats_second_snapshot_computes_delta(monkeypatch, tmp_path):
+    import db
+    from services import analytics
+    monkeypatch.setattr(db.settings, "db_path", tmp_path / "t.db")
+    db.init_schema()
+    db.record_video_snapshot("wordstrata", "v1", snapshot_date="2026-06-16",
+                             views=100, likes=10, comments=2, watch_minutes=30, shares=5)
+
+    monkeypatch.setattr(analytics.db, "uploaded_video_ids", lambda ch: ["v1"])
+    monkeypatch.setattr(analytics, "video_details",
+                        lambda ch, ids, *, client=None: {"v1": _detail(180, 15, 3)})
+    monkeypatch.setattr(analytics, "video_period_metrics",
+                        lambda ch, s, e, ids, *, client=None: {"v1": {"watch_minutes": 55, "shares": 9}})
+
+    cvs = analytics.channel_video_stats(
+        "wordstrata", today=date(2026, 6, 17),
+        data_client=MagicMock(), analytics_client=MagicMock())
+    r = cvs.rows[0]
+    assert (r.views_total, r.views_today) == (180, 80)     # 180 - 100
+    assert (r.likes_total, r.likes_today) == (15, 5)
+    assert (r.comments_total, r.comments_today) == (3, 1)
+    assert (r.watch_min_total, r.watch_min_today) == (55, 25)
+    assert (r.shares_total, r.shares_today) == (9, 4)
+
+
+def test_channel_video_stats_missing_analytics_defaults_zero(monkeypatch, tmp_path):
+    import db
+    from services import analytics
+    monkeypatch.setattr(db.settings, "db_path", tmp_path / "t.db")
+    db.init_schema()
+    monkeypatch.setattr(analytics.db, "uploaded_video_ids", lambda ch: ["v1"])
+    monkeypatch.setattr(analytics, "video_details",
+                        lambda ch, ids, *, client=None: {"v1": _detail(10, 1, 0)})
+    monkeypatch.setattr(analytics, "video_period_metrics",
+                        lambda ch, s, e, ids, *, client=None: {})  # no analytics row yet
+
+    cvs = analytics.channel_video_stats(
+        "wordstrata", today=date(2026, 6, 17),
+        data_client=MagicMock(), analytics_client=MagicMock())
+    r = cvs.rows[0]
+    assert (r.watch_min_total, r.watch_min_today) == (0, 0)
+    assert (r.shares_total, r.shares_today) == (0, 0)
+
+
+def test_channel_video_stats_no_videos_returns_empty(monkeypatch, tmp_path):
+    import db
+    from services import analytics
+    monkeypatch.setattr(db.settings, "db_path", tmp_path / "t.db")
+    db.init_schema()
+    monkeypatch.setattr(analytics.db, "uploaded_video_ids", lambda ch: [])
+    cvs = analytics.channel_video_stats(
+        "wordstrata", today=date(2026, 6, 17),
+        data_client=MagicMock(), analytics_client=MagicMock())
+    assert cvs.channel == "wordstrata" and cvs.rows == []
+
+
+def test_channel_video_stats_skips_video_absent_from_details(monkeypatch, tmp_path):
+    """A video in uploaded_video_ids but missing from the Data API response
+    (deleted/private since upload) is dropped — no row, no snapshot persisted."""
+    import db
+    from services import analytics
+    monkeypatch.setattr(db.settings, "db_path", tmp_path / "t.db")
+    db.init_schema()
+    monkeypatch.setattr(analytics.db, "uploaded_video_ids", lambda ch: ["v1", "gone"])
+    monkeypatch.setattr(analytics, "video_details",
+                        lambda ch, ids, *, client=None: {"v1": _detail(10, 1, 0)})
+    monkeypatch.setattr(analytics, "video_period_metrics",
+                        lambda ch, s, e, ids, *, client=None: {})
+
+    cvs = analytics.channel_video_stats(
+        "wordstrata", today=date(2026, 6, 17),
+        data_client=MagicMock(), analytics_client=MagicMock())
+    assert [r.video_id for r in cvs.rows] == ["v1"]                 # "gone" skipped
+    assert db.video_snapshot_before("wordstrata", "gone", "2026-06-18") is None
