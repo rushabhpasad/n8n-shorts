@@ -25,6 +25,7 @@ from models import (
     AssembleRequest,
     AssembleResponse,
     ChannelAnalytics,
+    ChannelVideoStats,
     DailyAnalyticsReport,
     ImageGenResult,
     ImageRequest,
@@ -34,6 +35,7 @@ from models import (
     ScriptResponse,
     UploadRequest,
     UploadResponse,
+    VideoStatsReport,
     VoiceRequest,
     VoiceResponse,
     WordRow,
@@ -463,6 +465,21 @@ async def analytics_daily_digest(days: int = 30) -> DigestResponse:
     channels = channel_registry.list_slugs()
     report = await asyncio.to_thread(analytics_svc.build_daily_report, channels, days)
     return DigestResponse(text=analytics_svc.render_digest(report))
+
+
+@app.get("/analytics/videos", response_model=VideoStatsReport)
+async def analytics_videos() -> VideoStatsReport:
+    """Per-video daily stats for every channel (one tab per channel in Sheets).
+    Called by the n8n analytics workflow's video-stats branch."""
+    channels = channel_registry.list_slugs()
+    return await asyncio.to_thread(analytics_svc.all_video_stats, channels)
+
+
+@app.get("/{channel}/analytics/videos", response_model=ChannelVideoStats)
+async def analytics_videos_channel(channel: str) -> ChannelVideoStats:
+    """Single-channel per-video stats (debugging parity with /{channel}/analytics)."""
+    _resolve_channel(channel)
+    return await asyncio.to_thread(analytics_svc.channel_video_stats, channel)
 
 
 # NOTE: must stay declared AFTER /analytics/daily — otherwise the {channel}

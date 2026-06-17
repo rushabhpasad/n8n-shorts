@@ -262,3 +262,48 @@ def test_all_video_stats_isolates_channel_failure(monkeypatch):
     assert [c.channel for c in report.channels] == ["good"]
     assert len(report.errors) == 1
     assert "bad" in report.errors[0] and "quota" in report.errors[0]
+
+
+def test_analytics_videos_endpoint(monkeypatch):
+    from fastapi.testclient import TestClient
+    import main
+    from models import VideoStatsReport, ChannelVideoStats
+    from services import analytics
+
+    monkeypatch.setattr(
+        analytics, "all_video_stats",
+        lambda channels, **kw: VideoStatsReport(
+            date="2026-06-17",
+            channels=[ChannelVideoStats(channel="wordstrata", rows=[])],
+            errors=[]),
+    )
+    client = TestClient(main.app)
+    resp = client.get("/analytics/videos")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["date"] == "2026-06-17"
+    assert body["channels"][0]["channel"] == "wordstrata"
+
+
+def test_analytics_videos_channel_unknown_returns_404():
+    from fastapi.testclient import TestClient
+    import main
+    client = TestClient(main.app)
+    resp = client.get("/definitely-not-a-channel/analytics/videos")
+    assert resp.status_code == 404
+
+
+def test_analytics_videos_channel_endpoint(monkeypatch):
+    from fastapi.testclient import TestClient
+    import main
+    from models import ChannelVideoStats
+    from services import analytics
+
+    monkeypatch.setattr(
+        analytics, "channel_video_stats",
+        lambda channel, **kw: ChannelVideoStats(channel=channel, rows=[]),
+    )
+    client = TestClient(main.app)
+    resp = client.get("/wordstrata/analytics/videos")  # known channel slug
+    assert resp.status_code == 200
+    assert resp.json()["channel"] == "wordstrata"
