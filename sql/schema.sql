@@ -61,3 +61,24 @@ CREATE TABLE IF NOT EXISTS analytics_snapshots (
     created_at            TEXT    NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (channel, date)
 );
+
+-- One row per video per analytics run. Time-series store powering per-video
+-- daily-delta columns in each channel's Google Sheets tab. Cumulative numbers
+-- come from two APIs: views/likes/comments (Data API, real-time) and
+-- watch_minutes/shares (Analytics API, ~1-2 day lag). Deltas are computed
+-- against the most recent prior row (spans gaps if a day was missed).
+CREATE TABLE IF NOT EXISTS video_snapshots (
+    channel        TEXT    NOT NULL,
+    video_id       TEXT    NOT NULL,
+    date           TEXT    NOT NULL,   -- YYYY-MM-DD snapshot date
+    views          INTEGER NOT NULL DEFAULT 0,   -- cumulative lifetime
+    likes          INTEGER NOT NULL DEFAULT 0,
+    comments       INTEGER NOT NULL DEFAULT 0,
+    watch_minutes  INTEGER NOT NULL DEFAULT 0,   -- cumulative (Analytics API)
+    shares         INTEGER NOT NULL DEFAULT 0,   -- cumulative (Analytics API)
+    created_at     TEXT    NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (channel, video_id, date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_video_snapshots_lookup
+    ON video_snapshots(channel, video_id, date DESC);
