@@ -133,6 +133,29 @@ def per_video(channel: str, video_ids: list[str], *, client=None) -> list[VideoA
     return out
 
 
+def video_details(channel: str, video_ids: list[str], *, client=None) -> dict[str, dict]:
+    """Per-video cumulative views/likes/comments + title/published_at, keyed by
+    video id. Batched by the Data API's 50-id cap."""
+    if not video_ids:
+        return {}
+    yt = client or _data_client(channel)
+    out: dict[str, dict] = {}
+    for i in range(0, len(video_ids), _VIDEOS_BATCH):
+        batch = video_ids[i:i + _VIDEOS_BATCH]
+        resp = yt.videos().list(part="snippet,statistics", id=",".join(batch)).execute()
+        for item in resp.get("items", []):
+            st = item.get("statistics", {})
+            sn = item.get("snippet", {})
+            out[item["id"]] = {
+                "views": int(st.get("viewCount", 0)),
+                "likes": int(st.get("likeCount", 0)),
+                "comments": int(st.get("commentCount", 0)),
+                "title": sn.get("title", ""),
+                "published_at": sn.get("publishedAt", ""),
+            }
+    return out
+
+
 def traffic_sources(channel: str, start: str, end: str, *, client=None) -> dict[str, int]:
     """(#2) Views per insightTrafficSourceType over the window → {source: views}."""
     ya = client or _analytics_client(channel)

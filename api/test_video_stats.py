@@ -85,3 +85,30 @@ def test_video_stat_row_and_report_models():
     assert report.channels[0].channel == "wordstrata"
     # defaults
     assert VideoStatsReport(date="2026-06-17", channels=[]).errors == []
+
+
+def test_video_details_parses_snippet_and_statistics():
+    from services import analytics
+    client = MagicMock()
+    client.videos.return_value.list.return_value.execute.return_value = {
+        "items": [
+            {"id": "v1",
+             "snippet": {"title": "Etymology of OK", "publishedAt": "2026-06-10T09:00:00Z"},
+             "statistics": {"viewCount": "180", "likeCount": "15", "commentCount": "3"}},
+            {"id": "v2",
+             "snippet": {"title": "Origin of Salary", "publishedAt": "2026-06-11T09:00:00Z"},
+             "statistics": {"viewCount": "40", "likeCount": "6", "commentCount": "2"}},
+        ]
+    }
+    out = analytics.video_details("wordstrata", ["v1", "v2"], client=client)
+    assert out["v1"] == {"views": 180, "likes": 15, "comments": 3,
+                         "title": "Etymology of OK", "published_at": "2026-06-10T09:00:00Z"}
+    assert out["v2"]["views"] == 40
+    # part must request snippet AND statistics
+    _, kwargs = client.videos.return_value.list.call_args
+    assert "snippet" in kwargs["part"] and "statistics" in kwargs["part"]
+
+
+def test_video_details_empty_returns_empty():
+    from services import analytics
+    assert analytics.video_details("wordstrata", [], client=MagicMock()) == {}
