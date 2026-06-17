@@ -19,12 +19,15 @@ import db
 from models import (
     ChannelAnalytics,
     ChannelSnapshot,
+    ChannelVideoStats,
     CountryViews,
     DailyAnalyticsReport,
     PeriodMetrics,
     TopVideo,
     TrendDelta,
     VideoAnalytics,
+    VideoStatRow,
+    VideoStatsReport,
     YppProgress,
 )
 from services.youtube import credentials
@@ -37,6 +40,11 @@ _PERIOD_METRICS = (
     "views,likes,comments,averageViewDuration,shares,averageViewPercentage"
 )
 _VIDEOS_BATCH = 50  # Data API videos.list id cap
+_VIDEO_ANALYTICS_BATCH = 200  # video== filter id cap is 500; 200 keeps rows == ids
+
+# Per-video Analytics column order (after the `video` dimension key) — keep
+# parsing in lockstep with the row indexing in video_period_metrics.
+_VIDEO_METRICS = "estimatedMinutesWatched,shares"
 
 # (#2) The insightTrafficSourceType value for the Shorts feed.
 _SHORTS_TRAFFIC_SOURCE = "SHORTS"
@@ -131,6 +139,146 @@ def per_video(channel: str, video_ids: list[str], *, client=None) -> list[VideoA
                 comments=int(st.get("commentCount", 0)),
             ))
     return out
+
+
+def video_details(channel: str, video_ids: list[str], *, client=None) -> dict[str, dict]:
+    """Per-video cumulative views/likes/comments + title/published_at, keyed by
+    video id. Batched by the Data API's 50-id cap."""
+    if not video_ids:
+        return {}
+    yt = client or _data_client(channel)
+    out: dict[str, dict] = {}
+    for i in range(0, len(video_ids), _VIDEOS_BATCH):
+        batch = video_ids[i:i + _VIDEOS_BATCH]
+        resp = yt.videos().list(part="snippet,statistics", id=",".join(batch)).execute()
+        for item in resp.get("items", []):
+            st = item.get("statistics", {})
+            sn = item.get("snippet", {})
+            out[item["id"]] = {
+                "views": int(st.get("viewCount", 0)),
+                "likes": int(st.get("likeCount", 0)),
+                "comments": int(st.get("commentCount", 0)),
+                "title": sn.get("title", ""),
+                "published_at": sn.get("publishedAt", ""),
+            }
+    return out
+
+
+def video_period_metrics(
+    channel: str, start: str, end: str, video_ids: list[str], *, client=None,
+) -> dict[str, dict]:
+    """Per-video cumulative watch_minutes + shares over [start, end], keyed by
+    video id. Filter is batched by 200 ids. Videos absent from the response
+    (e.g. brand-new, no Analytics data yet) are simply omitted — the caller
+    defaults them to 0.
+
+    `maxResults` caps each batch at the batch size; since the `video==` filter
+    bounds results to the batched ids, rows == ids and nothing is truncated. If
+    the batch size were ever raised past the response cap this would silently
+    drop rows — keep `_VIDEO_ANALYTICS_BATCH` at or below the API row limit."""
+    if not video_ids:
+        return {}
+    ya = client or _analytics_client(channel)
+    out: dict[str, dict] = {}
+    for i in range(0, len(video_ids), _VIDEO_ANALYTICS_BATCH):
+        batch = video_ids[i:i + _VIDEO_ANALYTICS_BATCH]
+        resp = ya.reports().query(
+            ids="channel==MINE",
+            startDate=start,
+            endDate=end,
+            metrics=_VIDEO_METRICS,
+            dimensions="video",
+            filters="video==" + ",".join(batch),
+            maxResults=_VIDEO_ANALYTICS_BATCH,
+        ).execute()
+        # row = [videoId, *_VIDEO_METRICS] → [videoId, watch_minutes, shares]
+        for row in (resp.get("rows") or []):
+            out[str(row[0])] = {"watch_minutes": int(row[1]), "shares": int(row[2])}
+    return out
+
+
+def _delta(today_cumulative: int, prior: dict | None, key: str) -> int:
+    """Daily delta vs the prior snapshot; == cumulative on the first snapshot.
+    Clamped at 0 so a deleted-then-recounted edge case never shows negative."""
+    if prior is None:
+        return today_cumulative
+    return max(0, today_cumulative - int(prior[key]))
+
+
+def _days_live(published_at: str, snapshot_date: str) -> int:
+    if not published_at:
+        return 0
+    published = date.fromisoformat(published_at[:10])
+    return max(0, (date.fromisoformat(snapshot_date) - published).days)
+
+
+def channel_video_stats(
+    channel: str,
+    *,
+    today: date | None = None,
+    data_client=None,
+    analytics_client=None,
+) -> ChannelVideoStats:
+    """Per-video rows for one channel: cumulative totals (Data + Analytics APIs)
+    plus daily deltas vs the prior stored snapshot. Persists today's snapshot."""
+    today = today or date.today()
+    snapshot_date = today.isoformat()
+    video_ids = db.uploaded_video_ids(channel)
+    if not video_ids:
+        return ChannelVideoStats(channel=channel, rows=[])
+
+    details = video_details(channel, video_ids, client=data_client)
+    # Analytics window starts at the earliest publish date we know about.
+    publish_dates = [d["published_at"][:10] for d in details.values() if d.get("published_at")]
+    start = min(publish_dates) if publish_dates else snapshot_date
+    period = video_period_metrics(
+        channel, start, snapshot_date, video_ids, client=analytics_client)
+
+    rows: list[VideoStatRow] = []
+    for vid in video_ids:
+        d = details.get(vid)
+        if d is None:
+            continue  # video deleted/private since upload — skip, no row
+        a = period.get(vid, {"watch_minutes": 0, "shares": 0})
+        prior = db.video_snapshot_before(channel, vid, snapshot_date)
+        views, likes, comments = d["views"], d["likes"], d["comments"]
+        watch, shares = a["watch_minutes"], a["shares"]
+        rows.append(VideoStatRow(
+            date=snapshot_date,
+            video_id=vid,
+            url=f"https://www.youtube.com/shorts/{vid}",
+            title=d["title"],
+            published_at=d["published_at"],
+            days_live=_days_live(d["published_at"], snapshot_date),
+            views_total=views, views_today=_delta(views, prior, "views"),
+            likes_total=likes, likes_today=_delta(likes, prior, "likes"),
+            comments_total=comments, comments_today=_delta(comments, prior, "comments"),
+            watch_min_total=watch, watch_min_today=_delta(watch, prior, "watch_minutes"),
+            shares_total=shares, shares_today=_delta(shares, prior, "shares"),
+        ))
+        db.record_video_snapshot(
+            channel, vid, snapshot_date=snapshot_date,
+            views=views, likes=likes, comments=comments,
+            watch_minutes=watch, shares=shares,
+        )
+    return ChannelVideoStats(channel=channel, rows=rows)
+
+
+def all_video_stats(
+    channels: list[str], *, today: date | None = None,
+) -> VideoStatsReport:
+    """Per-video stats for every channel; a failing channel is recorded in
+    `errors` rather than failing the whole report (mirrors build_daily_report)."""
+    today = today or date.today()
+    results: list[ChannelVideoStats] = []
+    errors: list[str] = []
+    for channel in channels:
+        try:
+            results.append(channel_video_stats(channel, today=today))
+        except Exception as e:  # noqa: BLE001 — one bad channel must not block the rest
+            errors.append(f"{channel}: {type(e).__name__}: {e}")
+            log.warning("video stats failed for channel=%s: %s", channel, e)
+    return VideoStatsReport(date=today.isoformat(), channels=results, errors=errors)
 
 
 def traffic_sources(channel: str, start: str, end: str, *, client=None) -> dict[str, int]:

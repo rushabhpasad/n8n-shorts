@@ -369,6 +369,47 @@ def snapshot_before(channel: str, snapshot_date: str) -> dict | None:
         return dict(row) if row else None
 
 
+def record_video_snapshot(
+    channel: str,
+    video_id: str,
+    *,
+    snapshot_date: str,
+    views: int,
+    likes: int,
+    comments: int,
+    watch_minutes: int,
+    shares: int,
+) -> None:
+    """Upsert one video's cumulative totals for `snapshot_date` (idempotent per
+    channel/video/day)."""
+    with conn() as c:
+        c.execute(
+            """
+            INSERT OR REPLACE INTO video_snapshots
+                (channel, video_id, date, views, likes, comments, watch_minutes, shares)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (channel, video_id, snapshot_date, views, likes, comments, watch_minutes, shares),
+        )
+
+
+def video_snapshot_before(channel: str, video_id: str, snapshot_date: str) -> dict | None:
+    """Most recent snapshot for (channel, video_id) strictly earlier than
+    `snapshot_date`, or None if this video has no prior snapshot. Used to compute
+    daily deltas; correctly spans gaps when a day was missed."""
+    with conn() as c:
+        row = c.execute(
+            """
+            SELECT * FROM video_snapshots
+            WHERE channel = ? AND video_id = ? AND date < ?
+            ORDER BY date DESC
+            LIMIT 1
+            """,
+            (channel, video_id, snapshot_date),
+        ).fetchone()
+        return dict(row) if row else None
+
+
 def get_word(channel: str, word_id: int) -> dict | None:
     with conn() as c:
         row = c.execute(

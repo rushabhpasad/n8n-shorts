@@ -238,6 +238,30 @@ videos_uploaded, watch_time_min_30d, avg_view_duration_s,
 avg_likes_per_video, avg_comments_per_video, likes_30d, comments_30d
 ```
 
+### Per-video daily stats (per-channel tabs)
+
+In addition to the channel-level `daily` tab, the analytics workflow writes
+per-video stats to **one tab per channel** (tab name == channel slug:
+`wordstrata`, `the-mythscape`, `open-verdicts`, `bright-beasts`; new channels
+auto-create their tab). One row is appended per video **per day** — a time
+series for charting growth and daily reach.
+
+Column order:
+
+```
+date | video_id | url | title | published_at | days_live |
+views_total | views_today | likes_total | likes_today |
+comments_total | comments_today | watch_min_total | watch_min_today |
+shares_total | shares_today
+```
+
+`*_total` are cumulative lifetime; `*_today` are the day-over-day delta computed
+by the backend against the prior snapshot. **Note:** `watch_min_*` and
+`shares_*` come from the YouTube Analytics API, which lags ~1–2 days, so they
+trail the real-time `views/likes/comments` (YouTube Data API) by a day.
+
+Backed by `GET /analytics/videos` and the `video_snapshots` table in `state.db`.
+
 ---
 
 ## Workflow backups

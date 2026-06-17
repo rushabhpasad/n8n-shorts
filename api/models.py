@@ -292,3 +292,39 @@ class DailyAnalyticsReport(BaseModel):
     # The rendered Telegram/Slack message body. Embedded here so n8n makes ONE
     # call: the Sheets path consumes `channels`, the chat path consumes this.
     digest_text: str = ""
+
+
+class VideoStatRow(BaseModel):
+    """One video's stats for one snapshot date — a single row in a channel tab.
+    `*_total` are cumulative lifetime; `*_today` are the delta vs the prior
+    snapshot (== total on the first-ever snapshot for the video)."""
+    date: str                       # snapshot date, YYYY-MM-DD
+    video_id: str
+    url: str
+    title: str
+    published_at: str               # ISO 8601 from the Data API snippet
+    days_live: int                  # whole days from publish to snapshot date
+    views_total: int
+    views_today: int
+    likes_total: int
+    likes_today: int
+    comments_total: int
+    comments_today: int
+    watch_min_total: int            # Analytics API (lags ~1-2 days)
+    watch_min_today: int            # Analytics API (lags ~1-2 days)
+    shares_total: int               # Analytics API (lags ~1-2 days)
+    shares_today: int               # Analytics API (lags ~1-2 days)
+
+
+class ChannelVideoStats(BaseModel):
+    """All per-video rows for one channel (one channel = one Sheets tab)."""
+    channel: str
+    rows: list[VideoStatRow] = Field(default_factory=list)
+
+
+class VideoStatsReport(BaseModel):
+    """All-channel per-video stats for one run. The n8n Code node flattens
+    `channels[].rows[]`, routing each row to a tab named after its channel."""
+    date: str                       # run date, YYYY-MM-DD
+    channels: list[ChannelVideoStats]
+    errors: list[str] = Field(default_factory=list)
