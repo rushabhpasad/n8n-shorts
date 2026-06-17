@@ -244,3 +244,21 @@ def test_channel_video_stats_skips_video_absent_from_details(monkeypatch, tmp_pa
         data_client=MagicMock(), analytics_client=MagicMock())
     assert [r.video_id for r in cvs.rows] == ["v1"]                 # "gone" skipped
     assert db.video_snapshot_before("wordstrata", "gone", "2026-06-18") is None
+
+
+def test_all_video_stats_isolates_channel_failure(monkeypatch):
+    from services import analytics
+    from models import ChannelVideoStats
+
+    def fake(channel, *, today=None):
+        if channel == "bad":
+            raise RuntimeError("quota exceeded")
+        return ChannelVideoStats(channel=channel, rows=[])
+
+    monkeypatch.setattr(analytics, "channel_video_stats", fake)
+    report = analytics.all_video_stats(["good", "bad"], today=date(2026, 6, 17))
+
+    assert report.date == "2026-06-17"
+    assert [c.channel for c in report.channels] == ["good"]
+    assert len(report.errors) == 1
+    assert "bad" in report.errors[0] and "quota" in report.errors[0]

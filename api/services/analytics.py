@@ -27,6 +27,7 @@ from models import (
     TrendDelta,
     VideoAnalytics,
     VideoStatRow,
+    VideoStatsReport,
     YppProgress,
 )
 from services.youtube import credentials
@@ -261,6 +262,23 @@ def channel_video_stats(
             watch_minutes=watch, shares=shares,
         )
     return ChannelVideoStats(channel=channel, rows=rows)
+
+
+def all_video_stats(
+    channels: list[str], *, today: date | None = None,
+) -> VideoStatsReport:
+    """Per-video stats for every channel; a failing channel is recorded in
+    `errors` rather than failing the whole report (mirrors build_daily_report)."""
+    today = today or date.today()
+    results: list[ChannelVideoStats] = []
+    errors: list[str] = []
+    for channel in channels:
+        try:
+            results.append(channel_video_stats(channel, today=today))
+        except Exception as e:  # noqa: BLE001 — one bad channel must not block the rest
+            errors.append(f"{channel}: {type(e).__name__}: {e}")
+            log.warning("video stats failed for channel=%s: %s", channel, e)
+    return VideoStatsReport(date=today.isoformat(), channels=results, errors=errors)
 
 
 def traffic_sources(channel: str, start: str, end: str, *, client=None) -> dict[str, int]:
