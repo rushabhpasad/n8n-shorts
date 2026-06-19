@@ -160,14 +160,28 @@ def _generate_via_space(prompt: str, width: int, height: int, steps: int, seed: 
     return _image_bytes_from_result(result)
 
 
+def _is_quota_error(exc: Exception) -> bool:
+    """True if the Space failure is ZeroGPU quota exhaustion, not a transient blip.
+
+    Quota rejections are an up-front admission check ("90s requested vs 0s left")
+    that every retry would hit identically — retrying only burns sleep latency and
+    delays the inevitable mflux fallback. The phrasing comes from the spaces lib;
+    match loosely so minor wording changes still trip it.
+    """
+    msg = str(exc).lower()
+    return "quota" in msg and ("zerogpu" in msg or "requested" in msg or "exceeded" in msg)
+
+
 def _generate_via_space_with_retries(
     prompt: str, width: int, height: int, steps: int, seed: int,
     attempts: int, sleep_s: float, label: str = "",
 ) -> bytes:
     """Call the Space up to `attempts` times, sleeping `sleep_s` between tries.
 
-    Space failures are mostly transient (ZeroGPU busy, network blip), so a short
-    retry recovers most of them and avoids an unnecessary local mflux fallback.
+    Transient Space failures (ZeroGPU busy, network blip) usually clear on retry,
+    so a short retry avoids an unnecessary local mflux fallback. Quota-exhaustion
+    failures are NOT retried — they'd fail the same admission check every time — so
+    we re-raise immediately to fall back to mflux without wasting sleep latency.
     Raises the last exception if every attempt fails so the caller can fall back.
     """
     last_exc: Exception | None = None
@@ -176,6 +190,12 @@ def _generate_via_space_with_retries(
             return _generate_via_space(prompt, width, height, steps, seed)
         except Exception as e:
             last_exc = e
+            if _is_quota_error(e):
+                log.warning(
+                    "%sspace quota exhausted (%s) — skipping retries, falling back to mflux",
+                    label, str(e)[:200],
+                )
+                break
             if attempt < attempts:
                 log.warning(
                     "%sspace attempt %d/%d failed (%s) — retrying in %.0fs",

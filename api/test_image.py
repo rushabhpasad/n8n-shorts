@@ -110,3 +110,26 @@ def test_space_retries_raises_after_exhausting_attempts(monkeypatch):
 
     assert attempts["n"] == 3
     assert slept == [30.0, 30.0]  # sleeps between tries, but not after the final failure
+
+
+def test_space_quota_error_skips_retries(monkeypatch):
+    import pytest
+
+    attempts = {"n": 0}
+    slept = []
+
+    def quota_exhausted(*args, **kwargs):
+        attempts["n"] += 1
+        raise RuntimeError(
+            "You have exceeded your free ZeroGPU quota (90s requested vs. 0s left). "
+            "Try again in 0:00:00"
+        )
+
+    monkeypatch.setattr(image, "_generate_via_space", quota_exhausted)
+    monkeypatch.setattr(image.time, "sleep", lambda s: slept.append(s))
+
+    with pytest.raises(RuntimeError, match="ZeroGPU quota"):
+        _generate_via_space_with_retries("p", 768, 1344, 8, 7, attempts=3, sleep_s=30.0)
+
+    assert attempts["n"] == 1   # no retries on a quota rejection
+    assert slept == []          # and no wasted sleep before fallback
