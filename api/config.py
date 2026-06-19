@@ -52,6 +52,11 @@ class Settings(BaseSettings):
     image_backend: Literal["space", "mflux"] = Field(default="space")
     zimage_space_url: str = Field(default="https://mrfakename-z-image-turbo.hf.space")
     zimage_space_timeout_s: float = Field(default=180.0)
+    # Space failures are usually transient (ZeroGPU busy, network blip), not real
+    # quota exhaustion — dashboard shows ~1 of 5 free minutes used. Retry a few
+    # times with a pause before paying for the slow, memory-heavy local fallback.
+    zimage_space_attempts: int = Field(default=3)          # total tries (1 + 2 retries)
+    zimage_space_retry_sleep_s: float = Field(default=30.0)
     # Optional HF token → authenticated ZeroGPU quota (higher than anonymous).
     # Set via env HF_TOKEN; never commit a real token.
     hf_token: str | None = Field(default=None)
