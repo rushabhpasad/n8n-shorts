@@ -200,6 +200,34 @@ Relevant config knobs (all in `api/config.py`, env-overridable):
 | `hf_token` | `None` | Set via `HF_TOKEN` in `api/.env`; passed as `token=` to `gradio_client` so ZeroGPU usage bills the account (5 min/day free) |
 | `mflux_cache_limit_bytes` | `1 GiB` | Caps MLX GPU-buffer cache; `mx.clear_cache()` called between mflux renders |
 
+### 2.14 Voice backend: local Piper (default) vs. Kokoro container
+
+`api/config.py` `voice_backend` controls which path `services/voice.py` `synthesize()` takes (same Space→fallback shape as image gen):
+
+- **`"piper"` (default)** — local Piper TTS, fully license-traceable (see §2.10),
+  monetization-safe. This is the production default; don't change it lightly.
+- **`"kokoro"`** — POSTs to the Kokoro-FastAPI container's OpenAI-compatible
+  `/v1/audio/speech` (`kokoro_base_url`, default `http://localhost:8880`). Higher
+  perceived quality, but Kokoro's training data includes "synthetic audio from
+  closed TTS providers" — an **unaudited provenance risk** Piper doesn't carry, so
+  it's behind a flag, not the default. On **ANY** failure (container down, HTTP,
+  empty body) it falls back to local Piper for that clip, so a run always completes.
+
+The container is defined in the repo-root `docker-compose.yml`
+(`ghcr.io/remsky/kokoro-fastapi-cpu`). On macOS it is **CPU-only** — Docker has no
+Metal/MLX passthrough — which is fine because image gen dominates wall-clock, not
+TTS. Bring it up with `docker compose up -d kokoro-tts` on stl before flipping the
+flag. The `.meta.json` sidecar records `backend` (`piper`/`kokoro`) alongside `voice`.
+
+| Setting | Default | Notes |
+|---|---|---|
+| `voice_backend` | `"piper"` | `"piper"` or `"kokoro"` |
+| `kokoro_base_url` | `http://localhost:8880` | Kokoro-FastAPI OpenAI-compatible base URL |
+| `kokoro_voices` | `["af_heart", "af_bella"]` | Random pick per call; Kokoro's only A/A- English voices |
+| `kokoro_model` | `"kokoro"` | `model` field in the speech request |
+| `kokoro_speed` | `0.9` | `<1` slower; ≈ Piper's `1.1` length_scale |
+| `kokoro_timeout_s` | `120` | HTTP timeout for the synth call |
+
 ## 3. Files where the most damage happens
 
 These are the high-impact files. Read carefully, change with intent.

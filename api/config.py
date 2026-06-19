@@ -75,6 +75,23 @@ class Settings(BaseSettings):
     # length_scale: 1.0 = normal, >1 = slower. 1.1 → 10% slower per user request.
     piper_length_scale: float = Field(default=1.1)
 
+    # Voice backend. "piper" = local Piper (default; fully license-traceable,
+    # monetization-safe). "kokoro" = Kokoro-FastAPI container exposing an
+    # OpenAI-compatible /v1/audio/speech endpoint — higher quality but trained
+    # partly on closed-TTS synthetic audio, so Piper stays the safe fallback:
+    # ANY kokoro failure falls back to local Piper for that clip.
+    # On macOS the container is CPU-only (no Metal/MLX passthrough); fine here
+    # since image-gen dominates wall-clock, not TTS.
+    voice_backend: Literal["piper", "kokoro"] = Field(default="piper")
+    kokoro_base_url: str = Field(default="http://localhost:8880")
+    # /voice picks one uniformly at random per call, same as the Piper pool.
+    # af_heart (A) and af_bella (A-) are Kokoro's only top-graded English voices.
+    kokoro_voices: list[str] = Field(default=["af_heart", "af_bella"])
+    kokoro_model: str = Field(default="kokoro")
+    # Kokoro `speed`: 1.0 = normal, <1 = slower. 0.9 ≈ Piper's 1.1 length_scale.
+    kokoro_speed: float = Field(default=0.9)
+    kokoro_timeout_s: float = Field(default=120.0)
+
     # Caption-vs-audio sync: shift each live caption's start window earlier by
     # this much. 0.0 means use the proportional-timing math as-is. Bump it up
     # if captions visibly trail the voice. Proper fix is whisper-based forced

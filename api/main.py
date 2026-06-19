@@ -257,15 +257,12 @@ async def voice(channel: str, req: VoiceRequest) -> VoiceResponse:
         )
     script = Script.model_validate(json.loads(script_path.read_text()))
 
-    chosen_voice = voice_svc.pick_voice()
-    await voice_svc.ensure_voice_downloaded(chosen_voice)
-
     audio_path = _audio_path(channel, req.word_id)
-    result = voice_svc.synthesize_to_wav(script, audio_path, chosen_voice)
+    result = await voice_svc.synthesize(script, audio_path)
 
     log.info(
-        "voice channel=%s word_id=%d → %s (%.2fs, %d bytes)",
-        channel, req.word_id, result["audio_path"],
+        "voice channel=%s word_id=%d voice=%s → %s (%.2fs, %d bytes)",
+        channel, req.word_id, result["voice"], result["audio_path"],
         result["duration_s"], result["size_bytes"],
     )
 
