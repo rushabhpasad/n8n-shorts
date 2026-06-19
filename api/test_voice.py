@@ -127,6 +127,26 @@ def test_synthesize_kokoro_failure_falls_back_to_piper(monkeypatch):
     assert result == {"voice": "en_US-joe-medium", "backend": "piper"}  # fell back
 
 
+def test_normalize_wav_header_fixes_intmax_framecount(tmp_path):
+    # Kokoro-FastAPI streams WAV with a 0xFFFFFFFF data-chunk size → INT_MAX frames.
+    # Forge that: a valid canonical-header WAV with the size fields overwritten.
+    out = tmp_path / "streamed.wav"
+    out.write_bytes(_tiny_wav_bytes(rate=24000, frames=24000))  # 1.0s, 44-byte header
+    raw = bytearray(out.read_bytes())
+    raw[4:8] = (0xFFFFFFFF).to_bytes(4, "little")    # RIFF chunk size
+    raw[40:44] = (0xFFFFFFFF).to_bytes(4, "little")  # data chunk size
+    out.write_bytes(raw)
+
+    # Sanity: the forged header reports the bogus count before normalization.
+    assert wave.open(str(out), "rb").getnframes() == (0xFFFFFFFF // 2)
+
+    voice._normalize_wav_header(out)
+
+    dur, rate = voice._wav_duration(out)
+    assert rate == 24000
+    assert dur == 1.0   # true length recovered, not 0xFFFFFFFF/2 frames
+
+
 def test_synthesize_via_kokoro_posts_payload_and_writes_wav(tmp_path, monkeypatch):
     monkeypatch.setattr(voice.settings, "outro_cta", "")
     monkeypatch.setattr(voice.settings, "kokoro_base_url", "http://localhost:8880/")
