@@ -92,6 +92,13 @@ def patch_code_node(js: str) -> str:
     js2 = re.sub(r"(const title = )(.+);", r"\1esc(\2);", js2, count=1)
     if js2 == js:
         return js
+    # Insert the esc helper immediately before its FIRST use so it is never
+    # referenced in its temporal dead zone. Daily pipelines use it above the
+    # return (`const title = esc(...)`); the error alert uses it only inside the
+    # return template. Placing it before `return` unconditionally would put the
+    # `const esc` decl below `const title = esc(...)` → ReferenceError.
+    if "const title = esc(" in js2:
+        return js2.replace("const title = esc(", ESC_DECL + "const title = esc(", 1)
     return js2.replace("return [", ESC_DECL + "return [", 1)
 
 
