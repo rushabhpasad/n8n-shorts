@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from pathlib import Path
 
 from config import settings
@@ -159,6 +160,32 @@ def _generate_via_space(prompt: str, width: int, height: int, steps: int, seed: 
     return _image_bytes_from_result(result)
 
 
+def _generate_via_space_with_retries(
+    prompt: str, width: int, height: int, steps: int, seed: int,
+    attempts: int, sleep_s: float, label: str = "",
+) -> bytes:
+    """Call the Space up to `attempts` times, sleeping `sleep_s` between tries.
+
+    Space failures are mostly transient (ZeroGPU busy, network blip), so a short
+    retry recovers most of them and avoids an unnecessary local mflux fallback.
+    Raises the last exception if every attempt fails so the caller can fall back.
+    """
+    last_exc: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return _generate_via_space(prompt, width, height, steps, seed)
+        except Exception as e:
+            last_exc = e
+            if attempt < attempts:
+                log.warning(
+                    "%sspace attempt %d/%d failed (%s) — retrying in %.0fs",
+                    label, attempt, attempts, str(e)[:200], sleep_s,
+                )
+                time.sleep(sleep_s)
+    assert last_exc is not None  # attempts >= 1, so the loop ran and set this
+    raise last_exc
+
+
 def _render_mflux(model, prompt: str, seed: int, out_path: Path) -> None:
     """Render one image locally via mflux and save it, releasing GPU buffers."""
     import gc
@@ -208,17 +235,23 @@ def generate_images(script: Script, output_dir: Path, word_id: int) -> list[dict
         used: str | None = None
 
         if backend == "space":
+            label = f"[{i + 1}/{n}] "
             try:
                 log.info(
-                    "[%d/%d] space generate seed=%d %dx%d steps=%d → %s",
-                    i + 1, n, seed, width, height, steps, out_path.name,
+                    "%sspace generate seed=%d %dx%d steps=%d → %s",
+                    label, seed, width, height, steps, out_path.name,
                 )
-                out_path.write_bytes(_generate_via_space(prompt, width, height, steps, seed))
+                out_path.write_bytes(_generate_via_space_with_retries(
+                    prompt, width, height, steps, seed,
+                    settings.zimage_space_attempts,
+                    settings.zimage_space_retry_sleep_s,
+                    label=label,
+                ))
                 used = "space"
             except Exception as e:
                 log.warning(
-                    "[%d/%d] space backend failed (%s) — falling back to mflux",
-                    i + 1, n, str(e)[:200],
+                    "%sspace backend failed after %d attempts (%s) — falling back to mflux",
+                    label, settings.zimage_space_attempts, str(e)[:200],
                 )
 
         if used is None:

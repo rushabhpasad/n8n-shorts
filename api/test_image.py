@@ -4,6 +4,7 @@ import services.image as image
 from services.image import (
     _clear_stale_images,
     _generate_via_space,
+    _generate_via_space_with_retries,
     _image_bytes_from_result,
 )
 
@@ -69,3 +70,43 @@ def test_generate_via_space_passes_height_width_order(tmp_path, monkeypatch):
     assert out == b"OK"
     assert calls["args"] == ("a prompt", 1344, 768, 8, 7, False)
     assert calls["kwargs"] == {"api_name": "/generate_image"}
+
+
+def test_space_retries_succeeds_after_transient_failure(monkeypatch):
+    attempts = {"n": 0}
+    slept = []
+
+    def flaky(*args, **kwargs):
+        attempts["n"] += 1
+        if attempts["n"] < 3:
+            raise RuntimeError("ZeroGPU busy")
+        return b"PNG"
+
+    monkeypatch.setattr(image, "_generate_via_space", flaky)
+    monkeypatch.setattr(image.time, "sleep", lambda s: slept.append(s))
+
+    out = _generate_via_space_with_retries("p", 768, 1344, 8, 7, attempts=3, sleep_s=30.0)
+
+    assert out == b"PNG"
+    assert attempts["n"] == 3
+    assert slept == [30.0, 30.0]  # one sleep before each retry, none after success
+
+
+def test_space_retries_raises_after_exhausting_attempts(monkeypatch):
+    import pytest
+
+    attempts = {"n": 0}
+    slept = []
+
+    def always_fails(*args, **kwargs):
+        attempts["n"] += 1
+        raise RuntimeError("network down")
+
+    monkeypatch.setattr(image, "_generate_via_space", always_fails)
+    monkeypatch.setattr(image.time, "sleep", lambda s: slept.append(s))
+
+    with pytest.raises(RuntimeError, match="network down"):
+        _generate_via_space_with_retries("p", 768, 1344, 8, 7, attempts=3, sleep_s=30.0)
+
+    assert attempts["n"] == 3
+    assert slept == [30.0, 30.0]  # sleeps between tries, but not after the final failure
