@@ -77,6 +77,28 @@ def _wav_duration(path: Path) -> tuple[float, int]:
     return (frames / rate if rate else 0.0), rate
 
 
+def _normalize_wav_header(path: Path) -> None:
+    """Rewrite the WAV header in place with the true frame count.
+
+    Kokoro-FastAPI streams the WAV and leaves a 0xFFFFFFFF placeholder in the
+    data-chunk size, so getnframes() reports INT_MAX. Anything that trusts the
+    header — our _wav_duration AND video.assemble_video's _wav_duration_s, which
+    drives every beat/segment duration — would otherwise compute a nonsense
+    length. Re-read the real PCM bytes (readframes reads to EOF despite the bogus
+    count) and rewrite a correct header. No-op-safe on already-correct WAVs.
+    """
+    with wave.open(str(path), "rb") as r:
+        params = r.getparams()
+        data = r.readframes(2**31 - 1)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with wave.open(str(tmp), "wb") as w:
+        w.setnchannels(params.nchannels)
+        w.setsampwidth(params.sampwidth)
+        w.setframerate(params.framerate)
+        w.writeframes(data)
+    tmp.replace(path)
+
+
 def _write_voice_meta(output_path: Path, voice: str, *, backend: str, **extra) -> None:
     """Sidecar JSON so /upload can persist the voice used without opening the WAV.
 
@@ -200,6 +222,7 @@ async def _synthesize_via_kokoro(script: Script, output_path: Path, voice: str) 
     if not audio:
         raise RuntimeError("kokoro returned empty audio body")
     output_path.write_bytes(audio)
+    _normalize_wav_header(output_path)  # fix streamed-WAV INT_MAX frame count
 
     duration_s, rate = _wav_duration(output_path)
     _write_voice_meta(
