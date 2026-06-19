@@ -1,0 +1,24 @@
+# Kokoro-FastAPI — OpenAI-compatible TTS server, used when settings.voice_backend
+# = "kokoro". The FastAPI app (run natively on stl) calls it at
+# http://localhost:8880/v1/audio/speech and falls back to local Piper on any
+# failure, so this container is optional infrastructure, not a hard dependency.
+#
+# NOTE: On macOS, Docker has no Metal/MLX/GPU passthrough, so this runs CPU-only.
+# That's fine here — image generation dominates pipeline wall-clock, not TTS.
+# The :v0.5.0 tag is multi-arch; Docker pulls the arm64 variant on Apple Silicon.
+
+services:
+  kokoro-tts:
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:v0.5.0
+    container_name: kokoro-tts
+    ports:
+      - "8880:8880"
+    restart: unless-stopped
+    mem_limit: 2g
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8880/health').status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s

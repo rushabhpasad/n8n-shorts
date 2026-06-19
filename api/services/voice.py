@@ -41,11 +41,59 @@ def _parse_voice(voice: str) -> tuple[str, str, str]:
 
 
 def pick_voice() -> str:
-    """Uniformly random pick from the configured pool. Errors if pool empty."""
+    """Uniformly random pick from the configured Piper pool. Errors if empty."""
     pool = settings.piper_voices
     if not pool:
         raise RuntimeError("settings.piper_voices is empty")
     return random.choice(pool)
+
+
+def pick_kokoro_voice() -> str:
+    """Uniformly random pick from the configured Kokoro pool. Errors if empty."""
+    pool = settings.kokoro_voices
+    if not pool:
+        raise RuntimeError("settings.kokoro_voices is empty")
+    return random.choice(pool)
+
+
+def _build_narration_text(script: Script) -> str:
+    """Assemble the spoken text shared by every backend.
+
+    normalize_for_tts preserves any \\n\\n paragraph breaks inside each beat's
+    narration — important for the payoff↔CTA boundary, which a TTS engine would
+    otherwise read as a single utterance (causing the t=40s clip we saw on
+    word_0005). Beats are joined with \\n\\n too so the engine inserts inter-beat
+    silence cleanly. The outro CTA is appended to the last beat (no-op if empty).
+    """
+    script = script.with_outro_cta(settings.outro_cta)
+    return "\n\n".join(normalize_for_tts(b.narration.strip()) for b in script.beats)
+
+
+def _wav_duration(path: Path) -> tuple[float, int]:
+    """Return (duration_s, sample_rate) by reading the WAV header."""
+    with wave.open(str(path), "rb") as r:
+        frames = r.getnframes()
+        rate = r.getframerate()
+    return (frames / rate if rate else 0.0), rate
+
+
+def _write_voice_meta(output_path: Path, voice: str, *, backend: str, **extra) -> None:
+    """Sidecar JSON so /upload can persist the voice used without opening the WAV.
+
+    `voice` key is read by /upload — keep it. `backend` + `extra` are additive.
+    """
+    meta = {"voice": voice, "backend": backend, **extra}
+    output_path.with_suffix(".meta.json").write_text(json.dumps(meta, indent=2))
+
+
+def _voice_result(output_path: Path, voice: str, duration_s: float, rate: int) -> dict:
+    return {
+        "audio_path": str(output_path),
+        "duration_s": round(duration_s, 2),
+        "size_bytes": output_path.stat().st_size,
+        "voice": voice,
+        "sample_rate": rate,
+    }
 
 
 async def ensure_voice_downloaded(voice: str) -> Path:
@@ -109,15 +157,7 @@ def synthesize_to_wav(
 
     piper = PiperVoice.load(str(onnx_path))
 
-    # Append outro CTA to the last beat (no-op if empty).
-    script = script.with_outro_cta(settings.outro_cta)
-
-    # normalize_for_tts preserves any \n\n paragraph breaks inside each beat's
-    # narration — important for the payoff↔CTA boundary, which Piper would
-    # otherwise read as a single utterance (causing the t=40s clip we saw on
-    # word_0005). Beats are joined with \n\n too so Piper inserts inter-beat
-    # silence cleanly.
-    text = "\n\n".join(normalize_for_tts(b.narration.strip()) for b in script.beats)
+    text = _build_narration_text(script)
 
     # length_scale > 1 slows speech. API moved between Piper versions; try the
     # SynthesisConfig path (current piper-tts ≥1.3), fall back to plain kwarg.
@@ -130,22 +170,62 @@ def synthesize_to_wav(
         with wave.open(str(output_path), "wb") as wav_file:
             piper.synthesize_wav(text, wav_file)
 
-    with wave.open(str(output_path), "rb") as r:
-        frames = r.getnframes()
-        rate = r.getframerate()
-        duration_s = frames / rate if rate else 0.0
-
-    # Sidecar — recorded so /upload can persist which voice was used to the
-    # audit trail without having to peek inside the WAV.
-    meta_path = output_path.with_suffix(".meta.json")
-    meta_path.write_text(
-        json.dumps({"voice": voice, "length_scale": settings.piper_length_scale}, indent=2)
+    duration_s, rate = _wav_duration(output_path)
+    _write_voice_meta(
+        output_path, voice, backend="piper", length_scale=settings.piper_length_scale
     )
+    return _voice_result(output_path, voice, duration_s, rate)
 
-    return {
-        "audio_path": str(output_path),
-        "duration_s": round(duration_s, 2),
-        "size_bytes": output_path.stat().st_size,
+
+async def _synthesize_via_kokoro(script: Script, output_path: Path, voice: str) -> dict:
+    """Render narration via the Kokoro-FastAPI OpenAI-compatible endpoint.
+
+    POSTs to /v1/audio/speech and writes the returned WAV. Raises on any HTTP /
+    network / format error so the caller can fall back to Piper.
+    """
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    text = _build_narration_text(script)
+    payload = {
+        "model": settings.kokoro_model,
+        "input": text,
         "voice": voice,
-        "sample_rate": rate,
+        "response_format": "wav",
+        "speed": settings.kokoro_speed,
     }
+    url = f"{settings.kokoro_base_url.rstrip('/')}/v1/audio/speech"
+    async with httpx.AsyncClient(timeout=settings.kokoro_timeout_s) as client:
+        resp = await client.post(url, json=payload)
+        resp.raise_for_status()
+        audio = resp.content
+    if not audio:
+        raise RuntimeError("kokoro returned empty audio body")
+    output_path.write_bytes(audio)
+
+    duration_s, rate = _wav_duration(output_path)
+    _write_voice_meta(
+        output_path, voice, backend="kokoro", speed=settings.kokoro_speed
+    )
+    return _voice_result(output_path, voice, duration_s, rate)
+
+
+async def synthesize(script: Script, output_path: Path) -> dict:
+    """Render narration with the configured backend; always falls back to Piper.
+
+    Mirrors the image Space→mflux pattern: try the (higher-quality but
+    provenance-uncertain) Kokoro container, and on ANY failure fall back to the
+    license-clean local Piper so a run always completes.
+    """
+    if settings.voice_backend == "kokoro":
+        voice = pick_kokoro_voice()
+        try:
+            log.info("kokoro synth voice=%s → %s", voice, output_path.name)
+            return await _synthesize_via_kokoro(script, output_path, voice)
+        except Exception as e:
+            log.warning(
+                "kokoro backend failed (%s) — falling back to piper", str(e)[:200]
+            )
+
+    voice = pick_voice()
+    await ensure_voice_downloaded(voice)
+    log.info("piper synth voice=%s → %s", voice, output_path.name)
+    return synthesize_to_wav(script, output_path, voice)
