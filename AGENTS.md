@@ -225,7 +225,7 @@ flag. The `.meta.json` sidecar records `backend` (`piper`/`kokoro`) alongside `v
 | `kokoro_base_url` | `http://localhost:8880` | Kokoro-FastAPI OpenAI-compatible base URL |
 | `kokoro_voices` | `["af_heart", "af_bella"]` | Random pick per call; Kokoro's only A/A- English voices |
 | `kokoro_model` | `"kokoro"` | `model` field in the speech request |
-| `kokoro_speed` | `0.9` | `<1` slower; ≈ Piper's `1.1` length_scale |
+| `kokoro_speed` | `1.0` | `<1` slower; Kokoro's natural pacing needs no slowdown (Piper still uses `1.1` length_scale) |
 | `kokoro_timeout_s` | `120` | HTTP timeout for the synth call |
 
 ## 3. Files where the most damage happens

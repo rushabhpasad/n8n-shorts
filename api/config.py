@@ -88,8 +88,10 @@ class Settings(BaseSettings):
     # af_heart (A) and af_bella (A-) are Kokoro's only top-graded English voices.
     kokoro_voices: list[str] = Field(default=["af_heart", "af_bella"])
     kokoro_model: str = Field(default="kokoro")
-    # Kokoro `speed`: 1.0 = normal, <1 = slower. 0.9 ≈ Piper's 1.1 length_scale.
-    kokoro_speed: float = Field(default=0.9)
+    # Kokoro `speed`: 1.0 = normal, <1 = slower. Kokoro's natural pacing needs no
+    # slowdown, so this stays at 1.0 (the old 0.9 mimicked Piper's 1.1
+    # length_scale, which Kokoro's clearer delivery makes unnecessary).
+    kokoro_speed: float = Field(default=1.0)
     kokoro_timeout_s: float = Field(default=120.0)
 
     # Caption-vs-audio sync: shift each live caption's start window earlier by
