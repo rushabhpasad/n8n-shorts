@@ -133,3 +133,21 @@ def test_space_quota_error_skips_retries(monkeypatch):
 
     assert attempts["n"] == 1   # no retries on a quota rejection
     assert slept == []          # and no wasted sleep before fallback
+
+
+def test_image_backend_chain_modal():
+    from services.image import _image_backend_chain
+
+    assert _image_backend_chain("modal") == ["modal", "space", "mflux"]
+
+
+def test_image_backend_chain_space_unchanged():
+    from services.image import _image_backend_chain
+
+    assert _image_backend_chain("space") == ["space", "mflux"]
+
+
+def test_image_backend_chain_mflux_only():
+    from services.image import _image_backend_chain
+
+    assert _image_backend_chain("mflux") == ["mflux"]

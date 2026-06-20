@@ -31,6 +31,19 @@ _model = None
 _model_lock = threading.Lock()
 
 
+def _image_backend_chain(backend: str) -> list[str]:
+    """Ordered per-image tier list for a given image_backend setting.
+
+    mflux is always the terminal tier — it runs locally and always completes,
+    so a run never fails for lack of a backend.
+    """
+    if backend == "modal":
+        return ["modal", "space", "mflux"]
+    if backend == "space":
+        return ["space", "mflux"]
+    return ["mflux"]
+
+
 def _get_model():
     global _model
     if _model is not None:

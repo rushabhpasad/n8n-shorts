@@ -49,7 +49,7 @@ class Settings(BaseSettings):
     # ZeroGPU, ~12s/image, no local RAM) and falls back to local mflux per-image
     # on any failure (GPU quota, network, error) so a run always completes.
     # "mflux" forces local generation only.
-    image_backend: Literal["space", "mflux"] = Field(default="space")
+    image_backend: Literal["modal", "space", "mflux"] = Field(default="space")
     zimage_space_url: str = Field(default="https://mrfakename-z-image-turbo.hf.space")
     zimage_space_timeout_s: float = Field(default=180.0)
     # Space failures are usually transient (ZeroGPU busy, network blip), not real
@@ -60,6 +60,16 @@ class Settings(BaseSettings):
     # Optional HF token → authenticated ZeroGPU quota (higher than anonymous).
     # Set via env HF_TOKEN; never commit a real token.
     hf_token: str | None = Field(default=None)
+
+    # Modal GPU image backend. When image_backend="modal" the per-image chain is
+    # Modal → Space → mflux: fast paid GPU first, free Space next, local mflux last.
+    # URL + token come from the deployed Modal app and a shared bearer token; set
+    # both via env on stl (MODAL_IMAGE_URL, MODAL_IMAGE_TOKEN), never commit them.
+    modal_image_url: str | None = Field(default=None)
+    modal_image_token: str | None = Field(default=None)
+    modal_attempts: int = Field(default=2)            # total tries (1 + 1 retry)
+    modal_retry_sleep_s: float = Field(default=5.0)
+    modal_timeout_s: float = Field(default=120.0)     # covers cold start + generation
 
     # Piper TTS — pool of voices; /voice picks one uniformly at random per call.
     # All listed voices must be commercial-use-OK (LibriVox public-domain, CC0,
