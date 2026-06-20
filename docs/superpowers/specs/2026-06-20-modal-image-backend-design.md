@@ -190,6 +190,6 @@ often, reducing the sustained-load risk on stl.
 
 ## Prerequisites (status)
 
-- Modal account + CLI authed in the working session — **done** (workspace `rpasad23-ai`).
+- Modal account + CLI authed in the working session — **done**.
 - GitHub repo secrets `MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET` — **done**.
 - `modal.Secret` for the endpoint bearer token — **to do at implementation/deploy time**.

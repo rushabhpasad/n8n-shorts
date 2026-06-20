@@ -17,8 +17,9 @@ through, so a run always completes.
 ## Status
 
 - **Live in production since 2026-06-20.**
-- Workspace: `rpasad23-ai` · App: `n8n-shorts-zimage`
-- Endpoint: `https://rpasad23-ai--n8n-shorts-zimage-zimage-web.modal.run`
+- App: `n8n-shorts-zimage` (under your Modal workspace)
+- Endpoint: `https://<workspace>--n8n-shorts-zimage-zimage-web.modal.run` (the
+  `modal deploy` output prints the real URL; it goes in the host's gitignored `.env`)
 - Real-world: ~15 s/image, ~$0.06/run, ~$0.25/day across the 4-channel batch.
 
 ## How it works
@@ -87,7 +88,7 @@ In `stl:~/n8n-shorts/api/.env`:
 
 ```bash
 IMAGE_BACKEND=modal
-MODAL_IMAGE_URL=https://rpasad23-ai--n8n-shorts-zimage-zimage-web.modal.run
+MODAL_IMAGE_URL=https://<workspace>--n8n-shorts-zimage-zimage-web.modal.run
 MODAL_IMAGE_TOKEN=<same value as the zimage-token secret>
 ```
 
