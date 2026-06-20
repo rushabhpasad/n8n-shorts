@@ -230,3 +230,85 @@ def test_modal_retries_raises_after_exhausting(monkeypatch):
     with pytest.raises(RuntimeError, match="modal down"):
         _generate_via_modal_with_retries("p", 768, 1344, 8, 42, attempts=2, sleep_s=5.0)
     assert attempts["n"] == 2
+
+
+# ---------------------------------------------------------------------------
+# Task 3: generate_images tier-chain integration tests
+# ---------------------------------------------------------------------------
+
+from types import SimpleNamespace
+from services.image import generate_images
+
+
+def _script(prompts):
+    return SimpleNamespace(image_prompts=prompts)
+
+
+def test_generate_images_modal_success(tmp_path, monkeypatch):
+    monkeypatch.setattr(image.settings, "image_backend", "modal")
+    monkeypatch.setattr(image, "_generate_via_modal_with_retries",
+                        lambda *a, **k: b"MODAL")
+
+    def boom(*a, **k):
+        raise AssertionError("should not be reached")
+    monkeypatch.setattr(image, "_generate_via_space_with_retries", boom)
+    monkeypatch.setattr(image, "_get_model", boom)
+
+    res = generate_images(_script(["p0"]), tmp_path, 7)
+
+    assert len(res) == 1
+    out = tmp_path / "word_0007_0.png"
+    assert out.read_bytes() == b"MODAL"
+
+
+def test_generate_images_modal_falls_to_space(tmp_path, monkeypatch):
+    monkeypatch.setattr(image.settings, "image_backend", "modal")
+
+    def modal_fail(*a, **k):
+        raise RuntimeError("modal down")
+    monkeypatch.setattr(image, "_generate_via_modal_with_retries", modal_fail)
+    monkeypatch.setattr(image, "_generate_via_space_with_retries",
+                        lambda *a, **k: b"SPACE")
+
+    def boom(*a, **k):
+        raise AssertionError("mflux should not load")
+    monkeypatch.setattr(image, "_get_model", boom)
+
+    res = generate_images(_script(["p0"]), tmp_path, 8)
+
+    assert (tmp_path / "word_0008_0.png").read_bytes() == b"SPACE"
+    assert len(res) == 1
+
+
+def test_generate_images_modal_space_fall_to_mflux(tmp_path, monkeypatch):
+    monkeypatch.setattr(image.settings, "image_backend", "modal")
+
+    def fail(*a, **k):
+        raise RuntimeError("backend down")
+    monkeypatch.setattr(image, "_generate_via_modal_with_retries", fail)
+    monkeypatch.setattr(image, "_generate_via_space_with_retries", fail)
+    monkeypatch.setattr(image, "_get_model", lambda: "FAKE_MODEL")
+
+    def fake_render(model, prompt, seed, out_path):
+        assert model == "FAKE_MODEL"
+        out_path.write_bytes(b"MFLUX")
+    monkeypatch.setattr(image, "_render_mflux", fake_render)
+
+    res = generate_images(_script(["p0"]), tmp_path, 9)
+
+    assert (tmp_path / "word_0009_0.png").read_bytes() == b"MFLUX"
+    assert len(res) == 1
+
+
+def test_generate_images_space_backend_unchanged(tmp_path, monkeypatch):
+    """Regression: image_backend='space' never touches Modal."""
+    monkeypatch.setattr(image.settings, "image_backend", "space")
+
+    def boom(*a, **k):
+        raise AssertionError("modal must not be called for space backend")
+    monkeypatch.setattr(image, "_generate_via_modal_with_retries", boom)
+    monkeypatch.setattr(image, "_generate_via_space_with_retries",
+                        lambda *a, **k: b"SPACE")
+    res = generate_images(_script(["p0"]), tmp_path, 5)
+    assert (tmp_path / "word_0005_0.png").read_bytes() == b"SPACE"
+    assert len(res) == 1
