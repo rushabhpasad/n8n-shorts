@@ -28,6 +28,7 @@ def _download_weights() -> None:
 
 image = (
     modal.Image.debian_slim(python_version="3.12")
+    .apt_install("git")  # needed to pip-install diffusers from its git URL
     .pip_install(
         "torch",
         "git+https://github.com/huggingface/diffusers",  # provides ZImagePipeline
