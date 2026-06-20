@@ -260,8 +260,10 @@ Full architecture/deploy/cost details live in `modal_app/README.md`.
   `POST /generate` (bearer-authed) returning PNG bytes. Scale-to-zero; weights baked
   into the image (no runtime re-download). Deploy: `modal deploy -m modal_app.zimage_app`.
   **The directory is `modal_app/`, not `modal/`, to avoid shadowing the `modal` SDK.**
-- **Deployed endpoint:** `https://rpasad23-ai--n8n-shorts-zimage-zimage-web.modal.run`
-  (workspace `rpasad23-ai`; stable across redeploys). This is stl's `MODAL_IMAGE_URL`.
+- **Deployed endpoint:** `https://<workspace>--n8n-shorts-zimage-zimage-web.modal.run`
+  (the `modal deploy` output prints the real URL; stable across redeploys). The
+  concrete value is the production host's `MODAL_IMAGE_URL` — kept in its `.env`,
+  not committed (this is a public repo).
 - **Auto-deploy:** `.github/workflows/deploy-modal.yml` runs `modal deploy` on push to
   `main` touching `modal_app/**`. Needs repo secrets `MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET`
   (set). Pushing the workflow file itself needs an SSH git remote — the `gh` OAuth token

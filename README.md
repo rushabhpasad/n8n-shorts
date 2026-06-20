@@ -39,15 +39,16 @@ Wall-clock per video: ~5 min on the Modal backend (~15 s/image, ~$0.06/run); ~5�
 │                                                                          │
 │  ┌─ Docker / OrbStack ─┐    ┌─ host processes ─────────────────────────┐ │
 │  │  n8n :5678          │───▶│  Ollama :11434       gemma4:8B (script)  │ │
-│  │                     │───▶│  shorts-api :7860    FastAPI (uvicorn)   │ │
-│  │  Daily cron         │    │   ├─ POST /script    → Ollama            │ │
-│  │  GET /state/next    │    │   ├─ POST /voice     → Piper / Kokoro    │ │
-│  │  POST /script       │    │   ├─ POST /image     → Modal→Space→mflux │─┼─┐
-│  │  POST /voice        │    │   ├─ POST /assemble  → ffmpeg + Pillow   │ │ │
-│  │  POST /image        │    │   └─ POST /upload    → YouTube Data API  │ │ │
-│  │  POST /assemble     │    │                                          │ │ │
-│  │  POST /upload       │    │  Storage: SQLite (state.db) + filesystem │ │ │
-│  └─────────────────────┘    └──────────────────────────────────────────┘ │ │
+│  │  (daily cron,       │───▶│  shorts-api :7860    FastAPI (uvicorn)   │ │
+│  │   calls the API)    │    │   ├─ POST /script    → Ollama            │ │
+│  │                     │    │   ├─ POST /voice     → Piper (in-proc)   │ │
+│  │  kokoro-tts :8880   │◀───│   │                    or Kokoro :8880   │ │
+│  │  (TTS container)    │    │   ├─ POST /image     → Modal→Space→mflux │─┼─┐
+│  └─────────────────────┘    │   ├─ POST /assemble  → ffmpeg + Pillow   │ │ │
+│                             │   └─ POST /upload    → YouTube Data API  │ │ │
+│                             │                                          │ │ │
+│                             │  Storage: SQLite (state.db) + filesystem │ │ │
+│                             └──────────────────────────────────────────┘ │ │
 └────────────────────────────────────────────────────────────────────────┼─┘
                                                                            │
    ┌─ Modal (serverless GPU, production image tier) ──────────────────────▼─┐
@@ -56,9 +57,12 @@ Wall-clock per video: ~5 min on the Modal backend (~15 s/image, ~$0.06/run); ~5�
    └────────────────────────────────────────────────────────────────────────┘
 ```
 
-n8n in Docker reaches the host via `http://host.docker.internal:7860`. The host
-reaches Modal over HTTPS; on any Modal failure image gen falls back to the free
-HF Space, then local mflux, so a run always completes. See
+n8n in Docker reaches the host via `http://host.docker.internal:7860`. **Piper
+TTS runs in-process** inside shorts-api; **Kokoro runs as a separate Docker
+container** (`kokoro-tts` on :8880) that the `/voice` endpoint calls over HTTP
+when `VOICE_BACKEND=kokoro`, falling back to in-process Piper on any failure. The
+host reaches Modal over HTTPS; on any Modal failure image gen falls back to the
+free HF Space, then local mflux, so a run always completes. See
 [`modal_app/README.md`](modal_app/README.md) for the GPU backend.
 
 ## Quick start
