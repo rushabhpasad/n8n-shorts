@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+import httpx
 from pathlib import Path
 
 from config import settings
@@ -216,6 +217,49 @@ def _generate_via_space_with_retries(
                 )
                 time.sleep(sleep_s)
     assert last_exc is not None  # attempts >= 1, so the loop ran and set this
+    raise last_exc
+
+
+def _generate_via_modal(prompt: str, width: int, height: int, steps: int, seed: int) -> bytes:
+    """Generate one image via the Modal Z-Image-Turbo endpoint. Returns PNG bytes.
+
+    Raises on missing config / non-200 / network error so the caller can fall
+    back to the Space chain.
+    """
+    if not (settings.modal_image_url and settings.modal_image_token):
+        raise RuntimeError("modal backend not configured (set MODAL_IMAGE_URL/MODAL_IMAGE_TOKEN)")
+    resp = httpx.post(
+        f"{settings.modal_image_url.rstrip('/')}/generate",
+        headers={"Authorization": f"Bearer {settings.modal_image_token}"},
+        json={"prompt": prompt, "width": width, "height": height, "steps": steps, "seed": seed},
+        timeout=settings.modal_timeout_s,
+    )
+    resp.raise_for_status()
+    return resp.content
+
+
+def _generate_via_modal_with_retries(
+    prompt: str, width: int, height: int, steps: int, seed: int,
+    attempts: int, sleep_s: float, label: str = "",
+) -> bytes:
+    """Call Modal up to `attempts` times, sleeping `sleep_s` between tries.
+
+    Cold-start/transient failures usually clear on a retry. Raises the last
+    exception if every attempt fails so the caller can fall back to the Space.
+    """
+    last_exc: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return _generate_via_modal(prompt, width, height, steps, seed)
+        except Exception as e:
+            last_exc = e
+            if attempt < attempts:
+                log.warning(
+                    "%smodal attempt %d/%d failed (%s) — retrying in %.0fs",
+                    label, attempt, attempts, str(e)[:200], sleep_s,
+                )
+                time.sleep(sleep_s)
+    assert last_exc is not None
     raise last_exc
 
 

@@ -151,3 +151,82 @@ def test_image_backend_chain_mflux_only():
     from services.image import _image_backend_chain
 
     assert _image_backend_chain("mflux") == ["mflux"]
+
+
+from services.image import _generate_via_modal, _generate_via_modal_with_retries
+
+
+class _FakeResp:
+    def __init__(self, content=b"PNG", status_ok=True):
+        self.content = content
+        self._ok = status_ok
+
+    def raise_for_status(self):
+        if not self._ok:
+            raise RuntimeError("modal 500")
+
+
+def test_generate_via_modal_posts_payload(monkeypatch):
+    monkeypatch.setattr(image.settings, "modal_image_url", "https://x.modal.run/")
+    monkeypatch.setattr(image.settings, "modal_image_token", "tok123")
+    monkeypatch.setattr(image.settings, "modal_timeout_s", 99.0)
+    captured = {}
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured.update(url=url, headers=headers, json=json, timeout=timeout)
+        return _FakeResp(content=b"MODALPNG")
+
+    monkeypatch.setattr(image.httpx, "post", fake_post)
+
+    out = _generate_via_modal("a prompt", 768, 1344, 8, 42)
+
+    assert out == b"MODALPNG"
+    assert captured["url"] == "https://x.modal.run/generate"   # rstrip slash + /generate
+    assert captured["headers"] == {"Authorization": "Bearer tok123"}
+    assert captured["json"] == {"prompt": "a prompt", "width": 768,
+                                "height": 1344, "steps": 8, "seed": 42}
+    assert captured["timeout"] == 99.0
+
+
+def test_generate_via_modal_raises_when_unconfigured(monkeypatch):
+    import pytest
+    monkeypatch.setattr(image.settings, "modal_image_url", None)
+    monkeypatch.setattr(image.settings, "modal_image_token", None)
+    with pytest.raises(RuntimeError, match="modal backend not configured"):
+        _generate_via_modal("p", 768, 1344, 8, 42)
+
+
+def test_modal_retries_succeeds_after_transient_failure(monkeypatch):
+    attempts = {"n": 0}
+    slept = []
+
+    def flaky(*a, **k):
+        attempts["n"] += 1
+        if attempts["n"] < 2:
+            raise RuntimeError("cold start timeout")
+        return b"OK"
+
+    monkeypatch.setattr(image, "_generate_via_modal", flaky)
+    monkeypatch.setattr(image.time, "sleep", lambda s: slept.append(s))
+
+    out = _generate_via_modal_with_retries("p", 768, 1344, 8, 42, attempts=2, sleep_s=5.0)
+
+    assert out == b"OK"
+    assert attempts["n"] == 2
+    assert slept == [5.0]
+
+
+def test_modal_retries_raises_after_exhausting(monkeypatch):
+    import pytest
+    attempts = {"n": 0}
+
+    def always_fails(*a, **k):
+        attempts["n"] += 1
+        raise RuntimeError("modal down")
+
+    monkeypatch.setattr(image, "_generate_via_modal", always_fails)
+    monkeypatch.setattr(image.time, "sleep", lambda s: None)
+
+    with pytest.raises(RuntimeError, match="modal down"):
+        _generate_via_modal_with_retries("p", 768, 1344, 8, 42, attempts=2, sleep_s=5.0)
+    assert attempts["n"] == 2
