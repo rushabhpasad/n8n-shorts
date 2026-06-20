@@ -10,22 +10,36 @@ people (or agents) editing code.
 
 ## 1. The standard restart cycle
 
+**Production host (`stl`) is supervised by `launchd`** (LaunchAgent
+`com.n8n-shorts.api`, `RunAtLoad` + `KeepAlive` → starts on boot, auto-restarts
+on crash). Restart it — never `pkill`/`nohup` on stl, that fights launchd for
+port 7860:
+
 ```bash
-# Restart the service after a code change:
+ssh stl 'launchctl kickstart -k gui/501/com.n8n-shorts.api'
+ssh stl 'curl -sS --max-time 3 http://localhost:7860/health | jq .status'
+```
+
+Local dev (not launchd-managed):
+
+```bash
 pkill -9 -f "uvicorn main:app" 2>/dev/null; sleep 2
 cd api && nohup uv run uvicorn main:app --host 0.0.0.0 --port 7860 \
   > /tmp/shorts-api.log 2>&1 &
-
-# Wait ~6s for it to come up, then verify
 sleep 6 && curl -sS --max-time 3 http://localhost:7860/health | jq .status
 ```
 
-**With the default `space` backend, the Z-Image-Turbo model is NOT loaded
-locally**, so restarts have no model-reload cost. The ~30 s reload note applies
-only when the mflux fallback has fired during the session (the model is
-lazy-loaded on first fallback and stays resident until the process exits).
-Avoid restarting in the middle of an in-flight image-gen run regardless of
-backend — the in-progress request is lost.
+The Homebrew PATH matters: `uv` and `ffmpeg` live in `/opt/homebrew/bin`, which
+is **not** on a non-interactive ssh PATH — the launchd plist bakes it in; a
+manual relaunch must `export PATH="/opt/homebrew/bin:$PATH"` or ffmpeg/`uv`
+won't resolve.
+
+**With the production `modal` backend (or the `space` backend), the
+Z-Image-Turbo model is NOT loaded locally**, so restarts have no model-reload
+cost. The ~30 s reload note applies only when the **mflux** fallback has fired
+during the session (the model is lazy-loaded on first fallback and stays
+resident until the process exits). Avoid restarting in the middle of an
+in-flight image-gen run regardless of backend — the in-progress request is lost.
 
 If you're iterating on `services/video.py` only, `/assemble` doesn't need the
 model loaded; the restart cost is negligible.
@@ -165,40 +179,47 @@ download function in the project should use the same pattern.
 ### 2.12 9B+ image models are unworkable on Apple Silicon
 
 Qwen-Image and FLUX.2-klein-9B benchmarked at ~40 s/step × 25 steps × 5
-images ≈ 50 min/video on an M1 Max. Z-Image-Turbo via the hosted Space backend
-takes ~10–15 s/image (ZeroGPU, zero local RAM), giving roughly 1–2 min of image
-generation per video in normal operation. The mflux local fallback path is
-significantly slower: ~5 min/image on an M1 Max (the z-image-turbo transformer
-is ~23 GB; a single 768×1344 render requires ~28 GB unified memory and thrashes
-the macOS compressor on a 32 GB machine). Stick with the `space` backend unless
-you're debugging or have no network.
+images ≈ 50 min/video on an M1 Max. Z-Image-Turbo on the **Modal** GPU backend
+(production) runs ~15 s/image; the hosted **Space** backend ~10–15 s/image
+(ZeroGPU, zero local RAM). The **mflux** local fallback is far slower:
+~5 min/image on an M1 Max (the z-image-turbo transformer is ~23 GB; a single
+768×1344 render needs ~28 GB unified memory and thrashes the macOS compressor on
+a 32 GB machine) — and a sustained 7-image mflux run is what crashed the service
+on 2026-06-19, which is the reason Modal exists. Never run mflux as the primary
+backend in production; it is a last-resort fallback only.
 
-### 2.13 Image backend: hosted Space (default) vs. local mflux
+### 2.13 Image backend: three tiers (Modal → Space → mflux)
 
-`api/config.py` `image_backend` controls which path `services/image.py` takes:
+`api/config.py` `image_backend` selects the per-image tier chain that
+`services/image.py::_image_backend_chain` walks. **Production (`stl`) runs
+`"modal"`**; the code default is `"space"` so a fresh checkout works without a
+Modal account.
 
-- **`"space"` (default)** — calls the hosted Z-Image-Turbo Gradio Space on
-  Hugging Face (`zimage_space_url`, default `https://mrfakename-z-image-turbo.hf.space`)
-  via `gradio_client.Client(url, token=HF_TOKEN)`. Free ZeroGPU; ~10–15 s/image;
-  zero local RAM. Per-image automatic fallback to local mflux on ANY failure
-  (GPU quota exceeded, network error, server error), so a run always completes
-  even when the Space is unavailable or the daily quota is spent.
-- **`"mflux"`** — local MLX generation only. Use when you want deterministic
-  local runs or are offline.
+- **`"modal"` (production)** — chain **Modal → Space → mflux**. Fast paid GPU
+  first (see §2.15), free Space as backstop, local mflux as last resort.
+- **`"space"` (code default)** — chain **Space → mflux**. Calls the hosted
+  Z-Image-Turbo Gradio Space (`zimage_space_url`, default
+  `https://mrfakename-z-image-turbo.hf.space`) via
+  `gradio_client.Client(url, token=HF_TOKEN)`. Free ZeroGPU; ~10–15 s/image.
+- **`"mflux"`** — local MLX only. Offline/deterministic; slow (~5 min/image).
 
-The local mflux model is **lazy-loaded only when a fallback actually fires**
-(`_get_model()` in `image.py`). The `space` path never pays the ~28 GB
-unified-memory cost unless it has to.
+In every chain **mflux is the terminal tier** — its exception propagates, so a
+run never fails for lack of a backend; non-terminal tiers log and fall through.
+The mflux model is **lazy-loaded only when that tier is actually reached**
+(`_get_model()`), so the modal/space paths never pay the ~28 GB unified-memory
+cost unless they have to.
 
 Relevant config knobs (all in `api/config.py`, env-overridable):
 
 | Setting | Default | Notes |
 |---|---|---|
-| `image_backend` | `"space"` | `"space"` or `"mflux"` |
+| `image_backend` | `"space"` | `"modal"`, `"space"`, or `"mflux"`. stl `.env` sets `IMAGE_BACKEND=modal`. |
 | `zimage_space_url` | `https://mrfakename-z-image-turbo.hf.space` | Gradio Space endpoint (passed to `gradio_client.Client`) |
 | `zimage_space_timeout_s` | `180` | Timeout for the URL-fallback fetch when the Space returns a remote image dict |
 | `hf_token` | `None` | Set via `HF_TOKEN` in `api/.env`; passed as `token=` to `gradio_client` so ZeroGPU usage bills the account (5 min/day free) |
 | `mflux_cache_limit_bytes` | `1 GiB` | Caps MLX GPU-buffer cache; `mx.clear_cache()` called between mflux renders |
+
+Modal-specific knobs are in §2.15.
 
 ### 2.14 Voice backend: local Piper (default) vs. Kokoro container
 
@@ -228,28 +249,45 @@ flag. The `.meta.json` sidecar records `backend` (`piper`/`kokoro`) alongside `v
 | `kokoro_speed` | `1.0` | `<1` slower; Kokoro's natural pacing needs no slowdown (Piper still uses `1.1` length_scale) |
 | `kokoro_timeout_s` | `120` | HTTP timeout for the synth call |
 
-### 2.15 Modal image backend (paid GPU, primary tier)
+### 2.15 Modal image backend (paid GPU, production primary)
 
-`image_backend="modal"` makes image gen a 3-tier chain: **Modal → Space → mflux**
-(`api/services/image.py::_image_backend_chain`). Modal is the fast paid GPU path;
-the free HF Space is the backstop; local mflux is the last resort (always completes).
+**LIVE in production since 2026-06-20.** `image_backend="modal"` makes image gen a
+3-tier chain **Modal → Space → mflux** (`api/services/image.py::_image_backend_chain`).
+Real-world: ~15 s/image, ~$0.06/run, 4-channel daily batch completes in ~5 min.
+Full architecture/deploy/cost details live in `modal_app/README.md`.
 
 - **Modal app:** `modal_app/zimage_app.py` — Z-Image-Turbo on an L4 GPU, exposed as
   `POST /generate` (bearer-authed) returning PNG bytes. Scale-to-zero; weights baked
   into the image (no runtime re-download). Deploy: `modal deploy -m modal_app.zimage_app`.
   **The directory is `modal_app/`, not `modal/`, to avoid shadowing the `modal` SDK.**
+- **Deployed endpoint:** `https://rpasad23-ai--n8n-shorts-zimage-zimage-web.modal.run`
+  (workspace `rpasad23-ai`; stable across redeploys). This is stl's `MODAL_IMAGE_URL`.
 - **Auto-deploy:** `.github/workflows/deploy-modal.yml` runs `modal deploy` on push to
-  `main` touching `modal_app/**`. Needs repo secrets `MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET`.
+  `main` touching `modal_app/**`. Needs repo secrets `MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET`
+  (set). Pushing the workflow file itself needs an SSH git remote — the `gh` OAuth token
+  lacks `workflow` scope (origin is SSH for this repo).
 - **Endpoint auth:** Modal Secret `zimage-token` (key `ZIMAGE_TOKEN`) must match stl's
-  `MODAL_IMAGE_TOKEN`. stl also needs `MODAL_IMAGE_URL` (the deployed endpoint URL).
+  `MODAL_IMAGE_TOKEN`. stl also needs `MODAL_IMAGE_URL`.
 - **Smoke test:**
   `curl -X POST "$MODAL_IMAGE_URL/generate" -H "Authorization: Bearer $MODAL_IMAGE_TOKEN" -H 'content-type: application/json' -d '{"prompt":"a red fox","width":768,"height":1344,"steps":8,"seed":42}' -o /tmp/modal_test.png`
 
+**GOTCHA — redeploy after changing the secret.** Modal binds
+`Secret.from_name("zimage-token")` into the deployed app **at deploy time**. If you
+update/recreate the secret afterward, running containers throw `"The secret does not
+exist, or you do not have access to it"` on every start until you **redeploy**
+(`modal deploy -m modal_app.zimage_app`, ~4 s since the image is cached). Always
+redeploy after rotating the token.
+
+**GOTCHA — `apt_install("git")` is required.** The image installs diffusers from its
+git URL (`git+https://github.com/huggingface/diffusers`, the only place
+`ZImagePipeline` lives), so `modal.Image.debian_slim` needs git apt-installed before
+the pip step or the build fails with "Cannot find command 'git'".
+
 | Setting | Default | Notes |
 |---|---|---|
-| `image_backend` | `"space"` | `"modal"`, `"space"`, or `"mflux"`; `"modal"` → Modal→Space→mflux |
+| `image_backend` | `"space"` | `"modal"`, `"space"`, or `"mflux"`; `"modal"` → Modal→Space→mflux. stl `.env` sets `modal`. |
 | `modal_image_url` | `None` | Deployed Modal endpoint base URL (env `MODAL_IMAGE_URL`) |
-| `modal_image_token` | `None` | Shared bearer token (env `MODAL_IMAGE_TOKEN`) |
+| `modal_image_token` | `None` | Shared bearer token (env `MODAL_IMAGE_TOKEN`), matches the `zimage-token` Modal Secret |
 | `modal_attempts` | `2` | total tries before falling to Space |
 | `modal_retry_sleep_s` | `5.0` | sleep between Modal retries |
 | `modal_timeout_s` | `120` | HTTP timeout (covers cold start) |
@@ -300,7 +338,7 @@ Integration testing remains empirical — the pipeline is too multi-process for
 unit tests to be high-leverage end-to-end:
 
 1. **`/script` change**: regen one word, paste the JSON, eyeball it.
-2. **`/image` change**: regen one word's images (~1–2 min via Space backend), open the PNGs.
+2. **`/image` change**: regen one word's images (~1–2 min via the Modal/Space backend), open the PNGs.
 3. **`/voice` change**: regen one WAV, play in QuickTime, listen for emoji/markdown bleed-through.
 4. **`/assemble` change**: regen one video, extract frames at every beat boundary + outro start, inspect captions and image transitions.
 5. **`/upload` change**: trigger with `privacy: "private"`, check it lands in Studio.
