@@ -33,28 +33,36 @@ Wall-clock per video: ~5 min on the Modal backend (~15 s/image, ~$0.06/run); ~5�
 
 ## Architecture
 
-```
-┌──────────────────────────────────────────────────────────────────────────┐
-│ Host (Apple Silicon Mac, "stl") — shorts-api supervised by launchd        │
-│                                                                          │
-│  ┌─ Docker / OrbStack ─┐    ┌─ host processes ─────────────────────────┐ │
-│  │  n8n :5678          │───▶│  Ollama :11434       gemma4:8B (script)  │ │
-│  │  (daily cron,       │───▶│  shorts-api :7860    FastAPI (uvicorn)   │ │
-│  │   calls the API)    │    │   ├─ POST /script    → Ollama            │ │
-│  │                     │    │   ├─ POST /voice     → Piper (in-proc)   │ │
-│  │  kokoro-tts :8880   │◀───│   │                    or Kokoro :8880   │ │
-│  │  (TTS container)    │    │   ├─ POST /image     → Modal→Space→mflux │─┼─┐
-│  └─────────────────────┘    │   ├─ POST /assemble  → ffmpeg + Pillow   │ │ │
-│                             │   └─ POST /upload    → YouTube Data API  │ │ │
-│                             │                                          │ │ │
-│                             │  Storage: SQLite (state.db) + filesystem │ │ │
-│                             └──────────────────────────────────────────┘ │ │
-└────────────────────────────────────────────────────────────────────────┼─┘
-                                                                           │
-   ┌─ Modal (serverless GPU, production image tier) ──────────────────────▼─┐
-   │  n8n-shorts-zimage   L4 GPU   POST /generate → Z-Image-Turbo → PNG     │
-   │  scale-to-zero · auto-deployed from modal_app/ on push to main         │
-   └────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+  subgraph host["Host · Apple Silicon Mac (stl) · shorts-api supervised by launchd"]
+    subgraph docker["Docker / OrbStack"]
+      n8n["n8n :5678<br/>(daily cron)"]
+      kokoro["kokoro-tts :8880<br/>(TTS container)"]
+    end
+    subgraph procs["host processes"]
+      ollama["Ollama :11434<br/>gemma4:8B"]
+      api["shorts-api :7860 · FastAPI/uvicorn<br/>/script · /voice · /image · /assemble · /upload<br/>(Piper TTS, ffmpeg+Pillow, mflux run in-process)"]
+      store[("SQLite state.db<br/>+ filesystem")]
+    end
+  end
+
+  subgraph modalcloud["Modal · serverless GPU (production image tier)"]
+    zimage["n8n-shorts-zimage · L4 GPU<br/>POST /generate → Z-Image-Turbo → PNG<br/>scale-to-zero · auto-deployed from modal_app/"]
+  end
+
+  space["HF Space<br/>Z-Image-Turbo (free ZeroGPU)"]
+  yt["YouTube Data API"]
+
+  n8n -->|"cron triggers endpoints"| api
+  api -->|"/script"| ollama
+  api -->|"/voice (Kokoro backend)"| kokoro
+  api -->|"/upload"| yt
+  api --> store
+
+  api ==>|"/image — 1. primary"| zimage
+  zimage -.->|"2. fallback"| space
+  space -.->|"3. fallback → local mflux"| api
 ```
 
 n8n in Docker reaches the host via `http://host.docker.internal:7860`. **Piper
