@@ -1,0 +1,19 @@
+name: Deploy Modal app
+on:
+  push:
+    branches: [main]
+    paths: ['modal_app/**', '.github/workflows/deploy-modal.yml']
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+      MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install modal
+      - run: python -m py_compile modal_app/zimage_app.py   # fast syntax gate
+      - run: modal deploy -m modal_app.zimage_app

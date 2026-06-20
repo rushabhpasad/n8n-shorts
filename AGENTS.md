@@ -228,6 +228,32 @@ flag. The `.meta.json` sidecar records `backend` (`piper`/`kokoro`) alongside `v
 | `kokoro_speed` | `1.0` | `<1` slower; Kokoro's natural pacing needs no slowdown (Piper still uses `1.1` length_scale) |
 | `kokoro_timeout_s` | `120` | HTTP timeout for the synth call |
 
+### 2.15 Modal image backend (paid GPU, primary tier)
+
+`image_backend="modal"` makes image gen a 3-tier chain: **Modal → Space → mflux**
+(`api/services/image.py::_image_backend_chain`). Modal is the fast paid GPU path;
+the free HF Space is the backstop; local mflux is the last resort (always completes).
+
+- **Modal app:** `modal_app/zimage_app.py` — Z-Image-Turbo on an L4 GPU, exposed as
+  `POST /generate` (bearer-authed) returning PNG bytes. Scale-to-zero; weights baked
+  into the image (no runtime re-download). Deploy: `modal deploy -m modal_app.zimage_app`.
+  **The directory is `modal_app/`, not `modal/`, to avoid shadowing the `modal` SDK.**
+- **Auto-deploy:** `.github/workflows/deploy-modal.yml` runs `modal deploy` on push to
+  `main` touching `modal_app/**`. Needs repo secrets `MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET`.
+- **Endpoint auth:** Modal Secret `zimage-token` (key `ZIMAGE_TOKEN`) must match stl's
+  `MODAL_IMAGE_TOKEN`. stl also needs `MODAL_IMAGE_URL` (the deployed endpoint URL).
+- **Smoke test:**
+  `curl -X POST "$MODAL_IMAGE_URL/generate" -H "Authorization: Bearer $MODAL_IMAGE_TOKEN" -H 'content-type: application/json' -d '{"prompt":"a red fox","width":768,"height":1344,"steps":8,"seed":42}' -o /tmp/modal_test.png`
+
+| Setting | Default | Notes |
+|---|---|---|
+| `image_backend` | `"space"` | `"modal"`, `"space"`, or `"mflux"`; `"modal"` → Modal→Space→mflux |
+| `modal_image_url` | `None` | Deployed Modal endpoint base URL (env `MODAL_IMAGE_URL`) |
+| `modal_image_token` | `None` | Shared bearer token (env `MODAL_IMAGE_TOKEN`) |
+| `modal_attempts` | `2` | total tries before falling to Space |
+| `modal_retry_sleep_s` | `5.0` | sleep between Modal retries |
+| `modal_timeout_s` | `120` | HTTP timeout (covers cold start) |
+
 ## 3. Files where the most damage happens
 
 These are the high-impact files. Read carefully, change with intent.

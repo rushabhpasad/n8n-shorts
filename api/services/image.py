@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+import httpx
 from pathlib import Path
 
 from config import settings
@@ -29,6 +30,19 @@ log = logging.getLogger("shorts-api.image")
 
 _model = None
 _model_lock = threading.Lock()
+
+
+def _image_backend_chain(backend: str) -> list[str]:
+    """Ordered per-image tier list for a given image_backend setting.
+
+    mflux is always the terminal tier — it runs locally and always completes,
+    so a run never fails for lack of a backend.
+    """
+    if backend == "modal":
+        return ["modal", "space", "mflux"]
+    if backend == "space":
+        return ["space", "mflux"]
+    return ["mflux"]
 
 
 def _get_model():
@@ -206,6 +220,49 @@ def _generate_via_space_with_retries(
     raise last_exc
 
 
+def _generate_via_modal(prompt: str, width: int, height: int, steps: int, seed: int) -> bytes:
+    """Generate one image via the Modal Z-Image-Turbo endpoint. Returns PNG bytes.
+
+    Raises on missing config / non-200 / network error so the caller can fall
+    back to the Space chain.
+    """
+    if not (settings.modal_image_url and settings.modal_image_token):
+        raise RuntimeError("modal backend not configured (set MODAL_IMAGE_URL/MODAL_IMAGE_TOKEN)")
+    resp = httpx.post(
+        f"{settings.modal_image_url.rstrip('/')}/generate",
+        headers={"Authorization": f"Bearer {settings.modal_image_token}"},
+        json={"prompt": prompt, "width": width, "height": height, "steps": steps, "seed": seed},
+        timeout=settings.modal_timeout_s,
+    )
+    resp.raise_for_status()
+    return resp.content
+
+
+def _generate_via_modal_with_retries(
+    prompt: str, width: int, height: int, steps: int, seed: int,
+    attempts: int, sleep_s: float, label: str = "",
+) -> bytes:
+    """Call Modal up to `attempts` times, sleeping `sleep_s` between tries.
+
+    Cold-start/transient failures usually clear on a retry. Raises the last
+    exception if every attempt fails so the caller can fall back to the Space.
+    """
+    last_exc: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return _generate_via_modal(prompt, width, height, steps, seed)
+        except Exception as e:
+            last_exc = e
+            if attempt < attempts:
+                log.warning(
+                    "%smodal attempt %d/%d failed (%s) — retrying in %.0fs",
+                    label, attempt, attempts, str(e)[:200], sleep_s,
+                )
+                time.sleep(sleep_s)
+    assert last_exc is not None
+    raise last_exc
+
+
 def _render_mflux(model, prompt: str, seed: int, out_path: Path) -> None:
     """Render one image locally via mflux and save it, releasing GPU buffers."""
     import gc
@@ -243,46 +300,50 @@ def generate_images(script: Script, output_dir: Path, word_id: int) -> list[dict
     if stale:
         log.info("cleared %d stale image(s) for word_id=%d", stale, word_id)
 
-    backend = settings.image_backend
+    chain = _image_backend_chain(settings.image_backend)
     width, height, steps = settings.mflux_width, settings.mflux_height, settings.mflux_steps
-    mflux_model = None  # lazy — only loaded if a fallback is actually needed
+    mflux_model = None  # lazy — only loaded if the mflux tier is actually reached
 
     results: list[dict] = []
     backends_used: list[str] = []
     for i, prompt in enumerate(script.image_prompts):
         out_path = output_dir / f"word_{word_id:04d}_{i}.png"
         seed = settings.mflux_seed_base + i
+        label = f"[{i + 1}/{n}] "
         used: str | None = None
 
-        if backend == "space":
-            label = f"[{i + 1}/{n}] "
+        for idx, tier in enumerate(chain):
+            is_last = idx == len(chain) - 1
             try:
-                log.info(
-                    "%sspace generate seed=%d %dx%d steps=%d → %s",
-                    label, seed, width, height, steps, out_path.name,
-                )
-                out_path.write_bytes(_generate_via_space_with_retries(
-                    prompt, width, height, steps, seed,
-                    settings.zimage_space_attempts,
-                    settings.zimage_space_retry_sleep_s,
-                    label=label,
-                ))
-                used = "space"
+                if tier == "modal":
+                    log.info("%smodal generate seed=%d %dx%d steps=%d → %s",
+                             label, seed, width, height, steps, out_path.name)
+                    out_path.write_bytes(_generate_via_modal_with_retries(
+                        prompt, width, height, steps, seed,
+                        settings.modal_attempts, settings.modal_retry_sleep_s,
+                        label=label,
+                    ))
+                elif tier == "space":
+                    log.info("%sspace generate seed=%d %dx%d steps=%d → %s",
+                             label, seed, width, height, steps, out_path.name)
+                    out_path.write_bytes(_generate_via_space_with_retries(
+                        prompt, width, height, steps, seed,
+                        settings.zimage_space_attempts,
+                        settings.zimage_space_retry_sleep_s, label=label,
+                    ))
+                else:  # mflux — terminal tier
+                    if mflux_model is None:
+                        mflux_model = _get_model()
+                    log.info("%smflux generate seed=%d %dx%d steps=%d → %s",
+                             label, seed, width, height, steps, out_path.name)
+                    _render_mflux(mflux_model, prompt, seed, out_path)
+                used = tier
+                break
             except Exception as e:
-                log.warning(
-                    "%sspace backend failed after %d attempts (%s) — falling back to mflux",
-                    label, settings.zimage_space_attempts, str(e)[:200],
-                )
-
-        if used is None:
-            if mflux_model is None:
-                mflux_model = _get_model()
-            log.info(
-                "[%d/%d] mflux generate seed=%d %dx%d steps=%d → %s",
-                i + 1, n, seed, width, height, steps, out_path.name,
-            )
-            _render_mflux(mflux_model, prompt, seed, out_path)
-            used = "mflux"
+                if is_last:
+                    raise
+                log.warning("%s%s backend failed (%s) — falling back to %s",
+                            label, tier, str(e)[:200], chain[idx + 1])
 
         backends_used.append(used)
         results.append({
@@ -297,7 +358,8 @@ def generate_images(script: Script, output_dir: Path, word_id: int) -> list[dict
         })
 
     log.info(
-        "image gen done: %d images (space=%d mflux=%d)",
-        n, backends_used.count("space"), backends_used.count("mflux"),
+        "image gen done: %d images (modal=%d space=%d mflux=%d)",
+        n, backends_used.count("modal"),
+        backends_used.count("space"), backends_used.count("mflux"),
     )
     return results
