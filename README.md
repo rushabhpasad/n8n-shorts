@@ -392,7 +392,7 @@ n8n-shorts/
 |---|---|---|---|
 | Orchestration | **n8n** | Sustainable Use License | Self-hosted in Docker |
 | LLM (script gen) | **Ollama `gemma4:latest`** (8B Q4_K_M) | Gemma TOU | Commercial use OK |
-| Image gen | **Z-Image-Turbo** (Tongyi-MAI) | Apache-2.0-ish | Hosted ZeroGPU Space: ~12 s/image, zero local RAM. Local mflux fallback: ~5 min/image on M1 Max (~28 GB unified memory). Configure via `image_backend` in `api/config.py`. |
+| Image gen | **Z-Image-Turbo** (Tongyi-MAI) | Apache-2.0-ish | Hosted ZeroGPU Space: ~12 s/image, zero local RAM. Local mflux fallback: ~5 min/image on M1 Max (~28 GB unified memory). Configure via `image_backend` in `api/config.py`. Optional **Modal** GPU backend (`image_backend=modal`) → Modal→Space→mflux — see AGENTS.md §2.15. |
 | TTS | **Piper** — 3-voice random pool: john, bryce, joe | Public domain / CC0 | YouTube-monetization safe; voice shuffled per video for variety. Optional higher-quality **Kokoro** backend via `voice_backend` (Docker container, Piper fallback) — see AGENTS.md §2.14 |
 | Typography | **Inter Bold** | SIL OFL 1.1 | Bundled at `assets/fonts/` |
 | Video | **ffmpeg + Pillow overlays** | LGPL + MIT-style | Homebrew ffmpeg lacks libfreetype, so all text is rendered to PNG via Pillow and overlaid |
