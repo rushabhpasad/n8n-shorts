@@ -50,3 +50,7 @@ node_modules/
 
 # brainstorming visual companion
 .superpowers/
+
+# pytest coverage
+api/.coverage
+.coverage

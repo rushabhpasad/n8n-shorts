@@ -25,6 +25,11 @@ SCOPES = [
     "https://www.googleapis.com/auth/youtube.upload",
     "https://www.googleapis.com/auth/yt-analytics.readonly",
     "https://www.googleapis.com/auth/youtube.readonly",
+    # Required to post comments as the channel owner (post_top_comment).
+    # NOTE: tokens minted before this scope was added LACK it — upload keeps
+    # working (it only needs youtube.upload), but comment posting will 403
+    # until each channel is re-consented via `scripts/yt_init.py --channel <slug>`.
+    "https://www.googleapis.com/auth/youtube.force-ssl",
 ]
 # YouTube video category IDs — full list:
 # https://developers.google.com/youtube/v3/docs/videoCategories/list
@@ -133,3 +138,49 @@ def upload_short(
         "url": f"https://www.youtube.com/shorts/{video_id}",
         "privacy": privacy,
     }
+
+
+def post_top_comment(channel: str, video_id: str, text: str) -> dict:
+    """Post a top-level comment as the channel owner — the conversion "seed".
+
+    Best-effort by design: requires the youtube.force-ssl scope, which tokens
+    minted before that scope was added do NOT have. NEVER raises on an
+    API/permission/network failure — it returns {posted: False, error: ...} so
+    the upload pipeline always continues. Returns
+    {posted: bool, comment_id: str | None, error: str | None}.
+
+    (The Data API has no "pin" operation; a channel-owner top comment already
+    surfaces prominently under a Short, which is the goal.)
+    """
+    if not text or not text.strip():
+        return {"posted": False, "comment_id": None, "error": "empty comment text"}
+    try:
+        creds = credentials(channel)
+        youtube = build("youtube", "v3", credentials=creds)
+        resp = (
+            youtube.commentThreads()
+            .insert(
+                part="snippet",
+                body={
+                    "snippet": {
+                        "videoId": video_id,
+                        "topLevelComment": {
+                            "snippet": {"textOriginal": text.strip()}
+                        },
+                    }
+                },
+            )
+            .execute()
+        )
+        comment_id = resp["snippet"]["topLevelComment"]["id"]
+        log.info(
+            "seed comment posted: channel=%s video_id=%s comment_id=%s",
+            channel, video_id, comment_id,
+        )
+        return {"posted": True, "comment_id": comment_id, "error": None}
+    except Exception as e:  # noqa: BLE001 — best-effort; pipeline must not break
+        log.warning(
+            "seed comment failed (channel=%s video_id=%s): %s",
+            channel, video_id, str(e)[:200],
+        )
+        return {"posted": False, "comment_id": None, "error": str(e)[:200]}

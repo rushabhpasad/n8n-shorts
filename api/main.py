@@ -244,7 +244,7 @@ async def script(channel: str, req: ScriptRequest) -> ScriptResponse:
 
 @app.post("/{channel}/voice", response_model=VoiceResponse)
 async def voice(channel: str, req: VoiceRequest) -> VoiceResponse:
-    _resolve_channel(channel)
+    cfg = _resolve_channel(channel)
     if not db.get_word(channel, req.word_id):
         raise HTTPException(404, f"word_id {req.word_id} not found in {channel}")
 
@@ -258,7 +258,9 @@ async def voice(channel: str, req: VoiceRequest) -> VoiceResponse:
     script = Script.model_validate(json.loads(script_path.read_text()))
 
     audio_path = _audio_path(channel, req.word_id)
-    result = await voice_svc.synthesize(script, audio_path)
+    # cfg.cta (per-channel promise; None → global settings.outro_cta). /assemble
+    # resolves the SAME value so spoken audio and burned caption stay in sync.
+    result = await voice_svc.synthesize(script, audio_path, cta=cfg.cta)
 
     log.info(
         "voice channel=%s word_id=%d voice=%s → %s (%.2fs, %d bytes)",
@@ -330,7 +332,7 @@ async def image(channel: str, req: ImageRequest) -> ImageResponse:
 
 @app.post("/{channel}/assemble", response_model=AssembleResponse)
 async def assemble(channel: str, req: AssembleRequest) -> AssembleResponse:
-    _resolve_channel(channel)
+    cfg = _resolve_channel(channel)
     if not db.get_word(channel, req.word_id):
         raise HTTPException(404, f"word_id {req.word_id} not found in {channel}")
 
@@ -353,8 +355,10 @@ async def assemble(channel: str, req: AssembleRequest) -> AssembleResponse:
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     t0 = time.perf_counter()
+    # Same cta resolution as /voice (cfg.cta → settings.outro_cta) so the outro
+    # card + burned caption match the spoken audio rendered earlier.
     result = await asyncio.to_thread(
-        video_svc.assemble_video, script, image_paths, audio_path, out_path
+        video_svc.assemble_video, script, image_paths, audio_path, out_path, cfg.cta
     )
     elapsed_ms = int((time.perf_counter() - t0) * 1000)
 
@@ -437,6 +441,41 @@ async def upload(channel: str, req: UploadRequest) -> UploadResponse:
     db.set_word_status(channel, req.word_id, "done")
     _ = cfg  # quiet linter
     return UploadResponse(word_id=req.word_id, elapsed_ms=elapsed_ms, **result)
+
+
+# ─── Comment (conversion seed) ───────────────────────────────────────────────
+
+class CommentRequest(BaseModel):
+    video_id: str
+    # Optional override; defaults to the channel's configured seed_comment.
+    text: str | None = None
+
+
+class CommentResponse(BaseModel):
+    channel: str
+    video_id: str
+    posted: bool
+    comment_id: str | None = None
+    error: str | None = None
+
+
+@app.post("/{channel}/comment", response_model=CommentResponse)
+async def comment(channel: str, req: CommentRequest) -> CommentResponse:
+    """Post the channel's seed comment (closing question) on a just-uploaded
+    video. Best-effort: ALWAYS returns 200 so the n8n pipeline continues even
+    when the channel's OAuth token predates the youtube.force-ssl scope (the
+    comment then reports posted=false with the API error)."""
+    cfg = _resolve_channel(channel)
+    text = req.text if req.text is not None else cfg.seed_comment
+    if not text:
+        return CommentResponse(
+            channel=channel, video_id=req.video_id, posted=False,
+            error="no seed_comment configured for this channel",
+        )
+    result = await asyncio.to_thread(
+        youtube_svc.post_top_comment, channel, req.video_id, text
+    )
+    return CommentResponse(channel=channel, video_id=req.video_id, **result)
 
 
 # ─── Analytics ────────────────────────────────────────────────────────────────

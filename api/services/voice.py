@@ -56,7 +56,12 @@ def pick_kokoro_voice() -> str:
     return random.choice(pool)
 
 
-def _build_narration_text(script: Script) -> str:
+def _resolve_cta(cta: str | None) -> str:
+    """Per-channel CTA when provided, else the generic global one."""
+    return settings.outro_cta if cta is None else cta
+
+
+def _build_narration_text(script: Script, cta: str | None = None) -> str:
     """Assemble the spoken text shared by every backend.
 
     normalize_for_tts preserves any \\n\\n paragraph breaks inside each beat's
@@ -64,8 +69,11 @@ def _build_narration_text(script: Script) -> str:
     otherwise read as a single utterance (causing the t=40s clip we saw on
     word_0005). Beats are joined with \\n\\n too so the engine inserts inter-beat
     silence cleanly. The outro CTA is appended to the last beat (no-op if empty).
+
+    `cta` overrides settings.outro_cta per channel; pass the SAME value here and
+    to video.assemble_video so the spoken audio and the burned caption match.
     """
-    script = script.with_outro_cta(settings.outro_cta)
+    script = script.with_outro_cta(_resolve_cta(cta))
     return "\n\n".join(normalize_for_tts(b.narration.strip()) for b in script.beats)
 
 
@@ -166,6 +174,7 @@ def synthesize_to_wav(
     script: Script,
     output_path: Path,
     voice: str,
+    cta: str | None = None,
 ) -> dict:
     """Render the 3-beat narration + CTA to a single WAV using `voice`.
     Also writes a sidecar JSON next to the WAV recording the voice choice."""
@@ -179,7 +188,7 @@ def synthesize_to_wav(
 
     piper = PiperVoice.load(str(onnx_path))
 
-    text = _build_narration_text(script)
+    text = _build_narration_text(script, cta)
 
     # length_scale > 1 slows speech. API moved between Piper versions; try the
     # SynthesisConfig path (current piper-tts ≥1.3), fall back to plain kwarg.
@@ -199,14 +208,16 @@ def synthesize_to_wav(
     return _voice_result(output_path, voice, duration_s, rate)
 
 
-async def _synthesize_via_kokoro(script: Script, output_path: Path, voice: str) -> dict:
+async def _synthesize_via_kokoro(
+    script: Script, output_path: Path, voice: str, cta: str | None = None
+) -> dict:
     """Render narration via the Kokoro-FastAPI OpenAI-compatible endpoint.
 
     POSTs to /v1/audio/speech and writes the returned WAV. Raises on any HTTP /
     network / format error so the caller can fall back to Piper.
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    text = _build_narration_text(script)
+    text = _build_narration_text(script, cta)
     payload = {
         "model": settings.kokoro_model,
         "input": text,
@@ -231,18 +242,22 @@ async def _synthesize_via_kokoro(script: Script, output_path: Path, voice: str) 
     return _voice_result(output_path, voice, duration_s, rate)
 
 
-async def synthesize(script: Script, output_path: Path) -> dict:
+async def synthesize(script: Script, output_path: Path, cta: str | None = None) -> dict:
     """Render narration with the configured backend; always falls back to Piper.
 
     Mirrors the image Space→mflux pattern: try the (higher-quality but
     provenance-uncertain) Kokoro container, and on ANY failure fall back to the
     license-clean local Piper so a run always completes.
+
+    `cta` is the per-channel outro promise (None → settings.outro_cta). The
+    caller (POST /{channel}/voice) and POST /{channel}/assemble must resolve and
+    pass the SAME value so spoken audio and burned caption stay in sync.
     """
     if settings.voice_backend == "kokoro":
         voice = pick_kokoro_voice()
         try:
             log.info("kokoro synth voice=%s → %s", voice, output_path.name)
-            return await _synthesize_via_kokoro(script, output_path, voice)
+            return await _synthesize_via_kokoro(script, output_path, voice, cta)
         except Exception as e:
             log.warning(
                 "kokoro backend failed (%s) — falling back to piper", str(e)[:200]
@@ -251,4 +266,4 @@ async def synthesize(script: Script, output_path: Path) -> dict:
     voice = pick_voice()
     await ensure_voice_downloaded(voice)
     log.info("piper synth voice=%s → %s", voice, output_path.name)
-    return synthesize_to_wav(script, output_path, voice)
+    return synthesize_to_wav(script, output_path, voice, cta)

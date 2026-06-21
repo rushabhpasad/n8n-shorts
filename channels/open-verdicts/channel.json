@@ -8,5 +8,7 @@
   "default_categories": ["disappearance", "unexplained_death", "lost_object", "cryptic_artifact", "ghost_ship", "mass_phenomenon", "missing_explorer", "cold_case", "vanished_settlement"],
   "ai_disclosure": true,
   "shorts_max_duration_s": 180,
-  "content_safety": "no living subjects, no post-1960 unless artifact-only, no conspiracy framing"
+  "content_safety": "no living subjects, no post-1960 unless artifact-only, no conspiracy framing",
+  "cta": "The record stays open. Subscribe for a new unsolved case every day, and share this one with someone who'd want to weigh in.",
+  "seed_comment": "What's your verdict on this case? Share your theory below."
 }

@@ -7,5 +7,7 @@
   "description_template": "Short retellings of myths from cultures across the world. New story every weekday.",
   "default_categories": ["greek", "norse", "egyptian", "hindu", "aztec", "celtic", "mesopotamian", "west_african", "japanese", "slavic"],
   "ai_disclosure": true,
-  "shorts_max_duration_s": 180
+  "shorts_max_duration_s": 180,
+  "cta": "If this legend stayed with you, subscribe for a new myth every day, and share it with someone who loves old stories.",
+  "seed_comment": "Which myth should we tell next? Drop it in the comments."
 }

@@ -389,6 +389,7 @@ def assemble_video(
     image_paths: list[Path],
     audio_path: Path,
     output_path: Path,
+    cta: str | None = None,
 ) -> dict:
     n_images = len(script.image_prompts)
     if len(image_paths) != n_images:
@@ -408,7 +409,7 @@ def assemble_video(
     # appears slightly later than pure-proportional would put it — this
     # gives viewers a beat to process the last narration line before the
     # SUBSCRIBE card hits.
-    cta_text = settings.outro_cta.strip()
+    cta_text = (settings.outro_cta if cta is None else cta).strip()
     cta_words = len(cta_text.split()) if cta_text else 0
     story_words = sum(len(b.narration.split()) for b in script.beats)
     total_words = max(1, story_words + cta_words)
