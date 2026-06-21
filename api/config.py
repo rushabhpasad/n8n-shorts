@@ -104,10 +104,17 @@ class Settings(BaseSettings):
     kokoro_speed: float = Field(default=1.0)
     kokoro_timeout_s: float = Field(default=120.0)
 
-    # Caption-vs-audio sync: shift each live caption's start window earlier by
-    # this much. 0.0 means use the proportional-timing math as-is. Bump it up
-    # if captions visibly trail the voice. Proper fix is whisper-based forced
-    # alignment.
+    # Caption-vs-audio sync strategy.
+    #   "proportional" — split each beat's audio duration across sentences by
+    #                    voice-form word count (estimate; trails ~200–400 ms).
+    #   "forced"       — torchaudio MMS_FA forced alignment of the known
+    #                    transcript to the rendered WAV (true per-word timing).
+    #                    Falls back to "proportional" on any alignment failure.
+    align_backend: Literal["proportional", "forced"] = Field(default="proportional")
+
+    # Only used by the "proportional" backend: shift each caption's start window
+    # earlier by this much if captions visibly trail the voice. The "forced"
+    # backend makes this unnecessary (and ignores it).
     caption_lead_s: float = Field(default=0.0)
 
     # CTA spoken at the end of every video. The same text appears as a
