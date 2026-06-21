@@ -25,6 +25,11 @@ dependencies = [
     # Text-to-speech (local, ONNX-backed)
     "piper-tts>=1.2.0",
 
+    # Forced alignment of the known transcript to rendered audio (caption sync).
+    # CPU-only inference via torchaudio's MMS_FA wav2vec2 CTC pipeline.
+    "torch>=2.2",
+    "torchaudio>=2.2",
+
     # Number-to-words (Piper reads "1688" as "one thousand six hundred…";
     # we normalize years to "sixteen eighty-eight" before TTS).
     "num2words>=0.5.13",
