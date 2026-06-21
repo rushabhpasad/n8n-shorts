@@ -159,3 +159,78 @@ def test_timings_with_lead_shifts_start():
     # First caption with lead=0 starts at 0; with lead=0.5 still floors to 0
     assert timings_no_lead[0][1] == 0.0
     assert timings_lead[0][1] == 0.0  # max(0, 0 - 0.5) = 0
+
+
+# ─── Task 7: forced-alignment caption timing ─────────────────────────────────
+
+from unittest.mock import patch
+
+import services.video as video
+from services.alignment import WordTiming
+
+
+def _two_beat_script() -> Script:
+    """Build a minimal 3-beat Script (models.Script requires exactly 3 beats,
+    >=4 images total). Third beat is a minimal payoff to satisfy the validator."""
+    return Script(
+        word="alpha",
+        pronunciation="AL-fuh",
+        title_text="ALPHA",
+        tagline="A short tagline here.",
+        beats=[
+            _beat("hook", "Alpha bravo. Charlie."),
+            _beat("origin", "Delta echo foxtrot."),
+            Beat(
+                label="payoff",
+                narration="Gamma hotel india juliet.",
+                on_screen="Payoff",
+                images=["img1", "img2", "img3"],
+            ),
+        ],
+        youtube=_youtube(),
+    )
+
+
+def test_forced_story_timings_maps_aligned_words(tmp_path):
+    script = _two_beat_script()
+    # story sentences → "Alpha bravo."=2, "Charlie."=1, "Delta echo foxtrot."=3,
+    #                    "Gamma hotel india juliet."=4  — 10 story words total
+    # cta "thanks" → 1 word; total transcript words = 11
+    fake = [
+        WordTiming("alpha", 0.0, 0.4), WordTiming("bravo", 0.4, 0.9),    # sent 0
+        WordTiming("charlie", 0.9, 1.5),                                  # sent 1
+        WordTiming("delta", 1.5, 1.9), WordTiming("echo", 1.9, 2.3),
+        WordTiming("foxtrot", 2.3, 3.0),                                  # sent 2
+        WordTiming("gamma", 3.0, 3.3), WordTiming("hotel", 3.3, 3.6),
+        WordTiming("india", 3.6, 3.8), WordTiming("juliet", 3.8, 4.2),   # sent 3
+        WordTiming("thanks", 4.2, 4.7),                                   # cta — discarded
+    ]
+    wav = tmp_path / "a.wav"
+    wav.write_bytes(b"")  # not read — forced_word_timings is mocked
+    with patch.object(video, "forced_word_timings", return_value=fake):
+        spans = video._forced_story_timings(script, wav, cta_text="Thanks")
+    captions = [c for c, _, _ in spans]
+    times = [(round(s, 3), round(e, 3)) for _, s, e in spans]
+    assert len(spans) == 4  # four story sentences (3 beats * sentences), CTA not included
+    assert times == [(0.0, 0.9), (0.9, 1.5), (1.5, 3.0), (3.0, 4.2)]
+    assert captions[0].startswith("Alpha")
+
+
+def test_assemble_falls_back_when_alignment_unavailable(tmp_path, monkeypatch):
+    from services.alignment import AlignmentUnavailable
+
+    script = _two_beat_script()
+    monkeypatch.setattr(video.settings, "align_backend", "forced")
+
+    def _boom(*a, **k):
+        raise AlignmentUnavailable("forced failure for test")
+
+    monkeypatch.setattr(video, "forced_word_timings", _boom)
+    # _forced_story_timings should propagate AlignmentUnavailable...
+    import pytest
+    with pytest.raises(AlignmentUnavailable):
+        video._forced_story_timings(script, tmp_path / "a.wav", cta_text="")
+    # ...and _compute_sentence_timings still works as the fallback producer.
+    durs = [1.0, 1.0, 1.0]
+    fallback = video._compute_sentence_timings(script, durs)
+    assert len(fallback) >= 3

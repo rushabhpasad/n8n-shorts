@@ -31,6 +31,11 @@ from PIL import Image, ImageDraw, ImageFont
 
 from config import settings
 from models import Script
+from services.alignment import (
+    AlignmentUnavailable,
+    forced_word_timings,
+    map_words_to_sentences,
+)
 from services.text_normalize import normalize_for_caption, normalize_inline
 
 log = logging.getLogger("shorts-api.video")
@@ -120,6 +125,37 @@ def _compute_sentence_timings(
             cursor = end
         beat_start += beat_dur
     return out
+
+
+def _forced_story_timings(
+    script: Script, audio_path: Path, cta_text: str
+) -> list[tuple[str, float, float]]:
+    """Story-sentence (caption, start_s, end_s) from forced alignment.
+
+    Aligns the FULL spoken transcript (story + CTA) so it matches the full
+    audio, then maps only the leading story-word spans onto story sentences.
+    The CTA caption is pinned to the outro window by the caller, so its spans
+    are aligned-but-discarded here. Raises AlignmentUnavailable on any failure.
+    """
+    story: list[tuple[str, list[str]]] = []
+    for beat in script.beats:
+        story.extend(_split_for_video(beat.narration))
+    if not story:
+        raise AlignmentUnavailable("no story sentences")
+
+    story_words = [tok for _cap, toks in story for tok in toks]
+    cta_words = normalize_inline(cta_text).split() if cta_text.strip() else []
+    all_words = story_words + cta_words
+
+    word_timings = forced_word_timings(audio_path, all_words)
+    story_timings = word_timings[: len(story_words)]  # discard CTA spans
+    counts = [len(toks) for _cap, toks in story]
+    spans = map_words_to_sentences(story_timings, counts)
+
+    return [
+        (cap, round(start, 3), round(end, 3))
+        for (cap, _toks), (start, end) in zip(story, spans)
+    ]
 
 
 def _compute_image_segments(
@@ -419,9 +455,18 @@ def assemble_video(
     story_dur = round(total_s - cta_dur, 3)
 
     beat_durs = _compute_beat_durations(script, story_dur)
-    sent_timings = _compute_sentence_timings(
-        script, beat_durs, lead_s=settings.caption_lead_s
-    )
+    sent_timings = None
+    if settings.align_backend == "forced":
+        try:
+            sent_timings = _forced_story_timings(script, audio_path, cta_text)
+            log.info("captions: forced alignment ok (%d sentences)", len(sent_timings))
+        except AlignmentUnavailable as e:
+            log.warning("captions: forced alignment unavailable (%s); using proportional", e)
+            sent_timings = None
+    if sent_timings is None:
+        sent_timings = _compute_sentence_timings(
+            script, beat_durs, lead_s=settings.caption_lead_s
+        )
     if cta_text:
         sent_timings.append(
             (normalize_for_caption(cta_text), round(story_dur, 3), round(total_s, 3))
