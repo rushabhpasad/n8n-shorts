@@ -85,6 +85,10 @@ def channel_snapshot(channel: str, *, client=None) -> ChannelSnapshot:
     if not items:
         raise RuntimeError(f"no YouTube channel for '{channel}' (check OAuth account)")
     s = items[0].get("statistics", {})
+    # Lifetime totals reported directly from the YouTube Data API. YouTube
+    # periodically revises these figures downward (spam-view audits, bot-sub
+    # removals, re-counts). A lower value vs the prior snapshot is legitimate,
+    # not a bug — do NOT floor these to the previous snapshot.
     return ChannelSnapshot(
         subscribers=int(s.get("subscriberCount", 0)),
         total_views=int(s.get("viewCount", 0)),
@@ -243,6 +247,10 @@ def channel_video_stats(
         prior = db.video_snapshot_before(channel, vid, snapshot_date)
         views, likes, comments = d["views"], d["likes"], d["comments"]
         watch, shares = a["watch_minutes"], a["shares"]
+        # *_total fields are the raw YouTube Data API cumulative values.
+        # YouTube revises these downward (spam-view audits, re-counts), so a
+        # lower value than yesterday's snapshot is expected — do NOT floor to
+        # the prior snapshot value.
         rows.append(VideoStatRow(
             date=snapshot_date,
             video_id=vid,
@@ -480,7 +488,14 @@ def channel_analytics(
 
 
 def _trend_from_snapshot(prior, snapshot, period, today) -> TrendDelta | None:
-    """(#4) Delta of totals vs the prior snapshot, or None on the first run."""
+    """(#4) Delta of totals vs the prior snapshot, or None on the first run.
+
+    Negative deltas (e.g. subscribers −2, views −11) are intentional and
+    correct: YouTube revises lifetime counts downward during spam/bot audits.
+    These are NOT clamped to zero — clamping would hide real corrections and
+    make the Sheet's trend columns misleading. A negative delta in the Sheet
+    is a signal to investigate, not a pipeline bug.
+    """
     if not prior:
         return None
     compared = (today - date.fromisoformat(prior["date"])).days
