@@ -45,10 +45,13 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
+# Keep in sync with api/services/youtube.py SCOPES — this is the consent the
+# token is minted with. force-ssl is required to post the per-upload seed comment.
 SCOPES = [
     "https://www.googleapis.com/auth/youtube.upload",
     "https://www.googleapis.com/auth/yt-analytics.readonly",
     "https://www.googleapis.com/auth/youtube.readonly",
+    "https://www.googleapis.com/auth/youtube.force-ssl",
 ]
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
