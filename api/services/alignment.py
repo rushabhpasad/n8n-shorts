@@ -14,6 +14,7 @@ AlignmentUnavailable and the caller falls back to proportional timing.
 from __future__ import annotations
 
 import re
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -49,7 +50,7 @@ def map_words_to_sentences(
     """Group consecutive word timings into per-sentence (start_s, end_s) spans.
 
     `counts[i]` is sentence i's voice-word count; spans are assigned in order.
-    Raises AlignmentUnavailable on any count < 1 or sum(counts) != len(words).
+    Raises AlignmentUnavailable on any count < 1 or sum(counts) != len(word_timings).
     """
     if any(c < 1 for c in counts):
         raise AlignmentUnavailable(f"non-positive sentence word count in {counts}")
@@ -71,6 +72,7 @@ _BUNDLE = None
 _MODEL = None
 _TOKENIZER = None
 _ALIGNER = None
+_model_lock = threading.Lock()
 
 
 def _ensure_model():
@@ -78,16 +80,19 @@ def _ensure_model():
     global _BUNDLE, _MODEL, _TOKENIZER, _ALIGNER
     if _MODEL is not None:
         return
-    try:
-        import torchaudio
+    with _model_lock:
+        if _MODEL is not None:
+            return
+        try:
+            import torchaudio
 
-        _BUNDLE = torchaudio.pipelines.MMS_FA
-        _MODEL = _BUNDLE.get_model(with_star=False)
-        _MODEL.eval()
-        _TOKENIZER = _BUNDLE.get_tokenizer()
-        _ALIGNER = _BUNDLE.get_aligner()
-    except Exception as e:  # import error, download failure, etc.
-        raise AlignmentUnavailable(f"could not load MMS_FA model: {e}") from e
+            _BUNDLE = torchaudio.pipelines.MMS_FA
+            _MODEL = _BUNDLE.get_model(with_star=False)
+            _MODEL.eval()
+            _TOKENIZER = _BUNDLE.get_tokenizer()
+            _ALIGNER = _BUNDLE.get_aligner()
+        except Exception as e:  # import error, download failure, etc.
+            raise AlignmentUnavailable(f"could not load MMS_FA model: {e}") from e
 
 
 def _load_16k_mono(wav_path: Path):

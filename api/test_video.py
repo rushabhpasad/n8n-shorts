@@ -9,8 +9,11 @@ int-returning version.
 from __future__ import annotations
 
 import pytest
+from unittest.mock import patch
 
+import services.video as video
 from models import Beat, Script, YouTubeMeta
+from services.alignment import WordTiming
 from services.video import _compute_sentence_timings, _split_for_video
 
 
@@ -163,11 +166,6 @@ def test_timings_with_lead_shifts_start():
 
 # ─── Task 7: forced-alignment caption timing ─────────────────────────────────
 
-from unittest.mock import patch
-
-import services.video as video
-from services.alignment import WordTiming
-
 
 def _two_beat_script() -> Script:
     """Build a minimal 3-beat Script (models.Script requires exactly 3 beats,
@@ -227,7 +225,6 @@ def test_assemble_falls_back_when_alignment_unavailable(tmp_path, monkeypatch):
 
     monkeypatch.setattr(video, "forced_word_timings", _boom)
     # _forced_story_timings should propagate AlignmentUnavailable...
-    import pytest
     with pytest.raises(AlignmentUnavailable):
         video._forced_story_timings(script, tmp_path / "a.wav", cta_text="")
     # ...and _compute_sentence_timings still works as the fallback producer.
