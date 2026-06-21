@@ -192,6 +192,28 @@
       }
     },
     {
+      "id": "do_comment",
+      "name": "Post comment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2000,
+        520
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:7860/wordstrata/comment",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={\"video_id\": {{ JSON.stringify($('Upload to YouTube').item.json.video_id) }} }",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
       "id": "format_success",
       "name": "Format success",
       "type": "n8n-nodes-base.code",
@@ -354,6 +376,11 @@
     "Upload to YouTube": {
       "main": [
         [
+          {
+            "node": "Post comment",
+            "type": "main",
+            "index": 0
+          },
           {
             "node": "Format success",
             "type": "main",

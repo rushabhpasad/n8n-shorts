@@ -31,6 +31,13 @@ class ChannelConfig(BaseModel):
     ai_disclosure: bool = True
     shorts_max_duration_s: int = 180
     content_safety: str | None = None
+    # Conversion levers (analytics showed views land but don't convert):
+    #   cta          — per-channel spoken/on-card outro promise. Falls back to
+    #                  settings.outro_cta (the generic global CTA) when unset.
+    #   seed_comment — the closing-question comment the pipeline posts as the
+    #                  channel owner right after upload, to seed discussion.
+    cta: str | None = None
+    seed_comment: str | None = None
     # YouTube upload metadata — sane defaults for English educational shorts.
     # Override per channel in channel.json if needed.
     # Category IDs: 27=Education, 28=Science & Technology, 24=Entertainment,

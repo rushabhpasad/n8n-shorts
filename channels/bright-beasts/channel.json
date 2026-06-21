@@ -8,5 +8,7 @@
   "default_categories": ["tool_use", "language", "self_recognition", "memory", "planning", "deception", "play", "grief", "navigation", "cooperation", "numerical_cognition"],
   "ai_disclosure": true,
   "shorts_max_duration_s": 180,
-  "youtube_category_id": "28"
+  "youtube_category_id": "28",
+  "cta": "If this animal amazed you, subscribe for a new brilliant creature every day, and share it with an animal lover.",
+  "seed_comment": "Which animal blew your mind? Let us know below."
 }

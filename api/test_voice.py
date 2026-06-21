@@ -60,6 +60,37 @@ def test_build_narration_text_joins_beats_and_appends_cta(monkeypatch):
     assert text.strip().endswith("Follow for more.")  # CTA on the last beat
 
 
+def test_build_narration_text_per_channel_cta_overrides_global(monkeypatch):
+    monkeypatch.setattr(voice.settings, "outro_cta", "GLOBAL CTA.")
+    text = voice._build_narration_text(_make_script(), cta="Subscribe for a new case daily.")
+    assert text.strip().endswith("Subscribe for a new case daily.")
+    assert "GLOBAL CTA." not in text
+
+
+def test_build_narration_text_none_cta_falls_back_to_global(monkeypatch):
+    monkeypatch.setattr(voice.settings, "outro_cta", "GLOBAL CTA.")
+    text = voice._build_narration_text(_make_script(), cta=None)
+    assert text.strip().endswith("GLOBAL CTA.")
+
+
+def test_synthesize_threads_cta_through_to_piper(monkeypatch):
+    monkeypatch.setattr(voice.settings, "voice_backend", "piper")
+
+    async def _no_download(_v):
+        return None
+
+    seen = {}
+    monkeypatch.setattr(voice, "pick_voice", lambda: "en_US-john-medium")
+    monkeypatch.setattr(voice, "ensure_voice_downloaded", _no_download)
+    monkeypatch.setattr(
+        voice, "synthesize_to_wav",
+        lambda s, p, v, c=None: seen.update(cta=c) or {"voice": v},
+    )
+
+    asyncio.run(voice.synthesize(_make_script(), voice.Path("/tmp/x.wav"), cta="CH CTA."))
+    assert seen["cta"] == "CH CTA."   # per-channel cta reaches the backend
+
+
 def test_pick_kokoro_voice_empty_pool_raises(monkeypatch):
     monkeypatch.setattr(voice.settings, "kokoro_voices", [])
     with pytest.raises(RuntimeError, match="kokoro_voices is empty"):
@@ -77,7 +108,7 @@ def test_synthesize_piper_backend_skips_kokoro(monkeypatch):
     monkeypatch.setattr(voice, "ensure_voice_downloaded", _no_download)
     monkeypatch.setattr(
         voice, "synthesize_to_wav",
-        lambda s, p, v: {"voice": v, "backend": "piper"},
+        lambda s, p, v, c=None: {"voice": v, "backend": "piper"},
     )
 
     async def _kokoro(*a, **k):
@@ -94,7 +125,7 @@ def test_synthesize_kokoro_success_skips_piper(monkeypatch):
     monkeypatch.setattr(voice.settings, "voice_backend", "kokoro")
     monkeypatch.setattr(voice.settings, "kokoro_voices", ["af_heart"])
 
-    async def _kokoro(s, p, v):
+    async def _kokoro(s, p, v, c=None):
         return {"voice": v, "backend": "kokoro"}
     monkeypatch.setattr(voice, "_synthesize_via_kokoro", _kokoro)
 
@@ -110,7 +141,7 @@ def test_synthesize_kokoro_failure_falls_back_to_piper(monkeypatch):
     monkeypatch.setattr(voice.settings, "voice_backend", "kokoro")
     monkeypatch.setattr(voice.settings, "kokoro_voices", ["af_heart"])
 
-    async def _kokoro(s, p, v):
+    async def _kokoro(s, p, v, c=None):
         raise RuntimeError("connection refused")
     monkeypatch.setattr(voice, "_synthesize_via_kokoro", _kokoro)
 
@@ -120,7 +151,7 @@ def test_synthesize_kokoro_failure_falls_back_to_piper(monkeypatch):
     monkeypatch.setattr(voice, "ensure_voice_downloaded", _no_download)
     monkeypatch.setattr(
         voice, "synthesize_to_wav",
-        lambda s, p, v: {"voice": v, "backend": "piper"},
+        lambda s, p, v, c=None: {"voice": v, "backend": "piper"},
     )
 
     result = asyncio.run(voice.synthesize(_make_script(), voice.Path("/tmp/x.wav")))

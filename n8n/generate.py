@@ -141,6 +141,30 @@ def make_workflow(slug: str, display_name: str, cron: str) -> dict:
         http_post("do_image",     "Generate images",  1340, f"/{slug}/image",     word_id_expr, 7200000),
         http_post("do_assemble",  "Assemble video",   1560, f"/{slug}/assemble",  word_id_expr, 120000),
         http_post("do_upload",    "Upload to YouTube", 1780, f"/{slug}/upload",   upload_expr,  600000),
+        # Seed comment (conversion): post the channel's closing-question comment
+        # as the owner, right after upload. video_id comes from the upload node.
+        # onError=continue + the endpoint always returning 200 means a comment
+        # failure (e.g. token predates the force-ssl scope) never breaks the run.
+        {
+            "id": "do_comment",
+            "name": "Post comment",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [2000, 520],
+            "parameters": {
+                "method": "POST",
+                "url": f"{base}/{slug}/comment",
+                "sendBody": True,
+                "contentType": "json",
+                "specifyBody": "json",
+                "jsonBody": (
+                    "={\"video_id\": "
+                    "{{ JSON.stringify($('Upload to YouTube').item.json.video_id) }} }"
+                ),
+                "options": {"timeout": 30000},
+            },
+            "onError": "continueRegularOutput",
+        },
         # --- success notifications (fan-out after upload) ---
         {
             "id": "format_success",
@@ -216,7 +240,15 @@ def make_workflow(slug: str, display_name: str, cron: str) -> dict:
     connections.update(fanout("Generate voice", "Generate images"))
     connections.update(fanout("Generate images", "Assemble video"))
     connections.update(fanout("Assemble video", "Upload to YouTube"))
-    connections.update(fanout("Upload to YouTube", "Format success"))
+    # Upload fans out to the seed-comment side-channel AND the success formatter.
+    # Format success therefore still receives the UPLOAD output as its input
+    # (it reads up.url / up.word_id) — it is NOT downstream of Post comment.
+    connections["Upload to YouTube"] = {
+        "main": [[
+            {"node": "Post comment", "type": "main", "index": 0},
+            {"node": "Format success", "type": "main", "index": 0},
+        ]]
+    }
     # Fan-out: Format success → both Telegram and Slack on output index 0
     connections["Format success"] = {
         "main": [[
