@@ -1,3 +1,9 @@
+import math
+import os
+import struct
+import wave
+from pathlib import Path
+
 import pytest
 
 from services.alignment import (
@@ -56,12 +62,6 @@ def test_zero_count_raises():
     with pytest.raises(AlignmentUnavailable):
         map_words_to_sentences(words, [0, 1])
 
-
-import os
-import wave
-import struct
-import math
-from pathlib import Path
 
 _RUN_MODEL = os.environ.get("RUN_ALIGNMENT_MODEL") == "1"
 

@@ -13,7 +13,6 @@ AlignmentUnavailable and the caller falls back to proportional timing.
 
 from __future__ import annotations
 
-import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -68,8 +67,6 @@ def map_words_to_sentences(
     return spans
 
 
-log = logging.getLogger("shorts-api.alignment")
-
 _BUNDLE = None
 _MODEL = None
 _TOKENIZER = None
@@ -112,7 +109,7 @@ def _load_16k_mono(wav_path: Path):
 
     # int16 PCM → float32 in [-1, 1]; copy to get a writable buffer
     data = torch.frombuffer(bytearray(raw), dtype=torch.int16).float() / 32768.0
-    waveform = data.reshape(n_ch, -1)
+    waveform = data.reshape(-1, n_ch).t().contiguous()
 
     if waveform.size(0) > 1:  # downmix to mono
         waveform = waveform.mean(dim=0, keepdim=True)
