@@ -42,7 +42,7 @@ flowchart TB
     end
     subgraph procs["host processes"]
       ollama["Ollama :11434<br/>gemma4:8B"]
-      api["shorts-api :7860 · FastAPI/uvicorn<br/>/script · /voice · /image · /assemble · /upload<br/>(Piper TTS, ffmpeg+Pillow, mflux run in-process)"]
+      api["shorts-api :7860 · FastAPI/uvicorn<br/>/script · /voice · /image · /assemble · /upload · /comment<br/>(Piper TTS, ffmpeg+Pillow, mflux run in-process)"]
       store[("SQLite state.db<br/>+ filesystem")]
     end
   end
@@ -57,7 +57,7 @@ flowchart TB
   n8n -->|"cron triggers endpoints"| api
   api -->|"/script"| ollama
   api -->|"/voice (Kokoro backend)"| kokoro
-  api -->|"/upload"| yt
+  api -->|"/upload · /comment"| yt
   api --> store
 
   api ==>|"/image — 1. primary"| zimage
@@ -233,7 +233,8 @@ table — **no extra YouTube API calls**.
 1. **Enable APIs** in the Google Cloud project behind each channel's OAuth
    client: **YouTube Data API v3** and **YouTube Analytics API**.
 
-2. **Re-consent each channel** for the wider analytics read scopes:
+2. **Re-consent each channel** for the analytics read scopes plus
+   `youtube.force-ssl` (needed to post each video's seed comment):
 
    ```bash
    uv run scripts/yt_init.py --channel wordstrata
@@ -242,9 +243,10 @@ table — **no extra YouTube API calls**.
    uv run scripts/yt_init.py --channel bright-beasts
    ```
 
-   Then restart the API service. Upload capability is retained — only the
-   consent dialog is re-shown to add `yt-analytics.readonly` and
-   `youtube.readonly`.
+   Then copy the refreshed `secrets/youtube_token.<slug>.json` files to the
+   production host and restart the API service. Upload capability is retained —
+   the consent dialog is re-shown to add `yt-analytics.readonly`,
+   `youtube.readonly`, and `youtube.force-ssl`.
 
 3. **Telegram bot** — create a bot via @BotFather (note the bot token); get
    your chat ID from

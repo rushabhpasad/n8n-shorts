@@ -301,7 +301,7 @@ These are the high-impact files. Read carefully, change with intent.
 | File | What it controls | Test after editing |
 |---|---|---|
 | `channels/<slug>/prompts/script.md` | Output quality of the LLM for that channel. Image prompts, narration tone, sentence-level captions. Each channel has its own. | Regen one script (`curl -X POST /<slug>/script` with a `word_id`) and *read it* before any image gen. |
-| `channels/<slug>/channel.json` | Per-channel metadata — slug, display name, YouTube handle, default categories, and YouTube upload defaults (`youtube_category_id`, `youtube_default_language`, `youtube_default_audio_language`, `youtube_license`, `ai_disclosure`). Loaded at runtime by `api/channels.py`. | `curl /channels` to confirm the registry sees it. |
+| `channels/<slug>/channel.json` | Per-channel metadata — slug, display name, YouTube handle, default categories, YouTube upload defaults (`youtube_category_id`, `youtube_default_language`, `youtube_default_audio_language`, `youtube_license`, `ai_disclosure`), and the conversion levers `cta` (per-channel outro promise; falls back to `settings.outro_cta` when unset — used by `/voice` + `/assemble`) and `seed_comment` (closing-question comment posted after upload via `/comment`). Loaded at runtime by `api/channels.py`. | `curl /channels` to confirm the registry sees it; edit `cta`/`seed_comment` and it applies next run, no code change. |
 | `api/services/analytics.py` | YouTube analytics — `channel_snapshot` (Data API v3), `period_metrics` (Analytics API v2: new/lost subs, watch time, likes, comments, shares, avg-view-% over N days), `per_video` (Data API v3 lifetime stats), `traffic_sources` (Shorts-feed share), `top_video`, `ypp_progress`, `compute_milestones`, `detect_alerts`, `channel_analytics` (orchestrates + reads/writes `analytics_snapshots` for trends), `build_daily_report`, `render_digest` (the Telegram/Slack message body). | `uv run --project api pytest api/test_analytics.py api/test_analytics_extras.py -v` (all mocked — no network). |
 | `api/services/youtube.py` | YouTube upload via Data API v3. Sets `categoryId`, `defaultLanguage`, `defaultAudioLanguage`, `containsSyntheticMedia`, `license`, `embeddable`, `publicStatsViewable`, `madeForKids`. Defaults flow from `ChannelConfig`; `UploadRequest` can override per-call. | Upload one video with `privacy: "private"`, then in Studio confirm category, language, and "Altered content" disclosure are set. |
 | `api/channels.py` | Channel registry (file-based). `load(slug)` resolves a `ChannelConfig`; `list_slugs()` discovers all channels at runtime. | Lookup an unknown slug — should 404 with a clear message. |
@@ -312,6 +312,9 @@ These are the high-impact files. Read carefully, change with intent.
 | `channels/<slug>/brand.json` | Channel icon prompts. Edit the `brand_concept` / `color_palette` / `icon_prompts` to redesign the channel's visual mark. | `uv run --project api scripts/gen_brand.py --channel <slug> --only <prompt-name>` and view the PNG. |
 | `scripts/gen_brand.py` | Renders icon candidates from a channel's `brand.json`. Already calls `unlink()` before `save_image` so the §2.1 mflux landmine is dodged here. | Run with `--only` for a single candidate. |
 | `scripts/merge_candidates.py` | Merges web-verified candidate JSON files (`{"candidates": [...]}`) into a channel's `words.csv`: dedupes case-insensitively on the subject column against the existing queue and within the batch, continues ids from the current max, optionally trims to `--target` (lowest `priority` first), and appends with CSV quoting. | `merge_candidates.py --channel <slug> --workdir <dir> [--target N]` for a dry run; add `--apply` to write. |
+| `scripts/reprioritize_pending.py` | Re-applies each `words.csv` `priority` column to **pending** rows in the live DB, keyed on `(channel, id)`. Needed because `words.csv` only seeds an *empty* channel — editing the CSV alone never re-orders an already-seeded live queue. Dry-run by default. | `reprioritize_pending.py` (dry run); add `--apply` to write to the prod DB on stl. |
+| `scripts/fix_analytics_sheets_dedupe.py` | One-off patcher: flips the live "Daily Analytics Digest" workflow's two Google Sheets nodes from `append` to `appendOrUpdate` (match `date`+`channel` / `date`+`video_id`) so re-runs update rows instead of duplicating. Raw REST GET→edit→PUT (NOT n8n-mcp — SDK reconstruction corrupts expressions). Idempotent. | `N8N_API_KEY=<key> fix_analytics_sheets_dedupe.py --dry-run`, then without `--dry-run`. |
+| `scripts/add_seed_comment_node.py` | One-off patcher: adds the "Post comment" node to the 4 live channel workflows (`Upload to YouTube → [Post comment, Format success]`) so they don't need a manual re-import after `n8n/generate.py` changes. Same surgical GET→safety-gate→PUT→reactivate idiom as `add_video_stats_branch.py`. Idempotent. | `N8N_API_KEY=<key> add_seed_comment_node.py --dry-run`, then without `--dry-run`. |
 
 ## 4. Conventions
 
@@ -368,17 +371,29 @@ anomaly alerts are diffed against the previous run's totals stored in the
 `analytics_snapshots` table (one row per channel per day) — **no extra API
 calls** — and `queue_pending` / `uploads_24h` read straight from `words`/`runs`.
 
-### OAuth scopes (widened — re-consent required)
+**Decreasing totals and negative trend deltas are NOT bugs** — they are
+legitimate YouTube count revisions (spam-view / bot-sub removal, re-audits) and
+are deliberately left un-clamped so the figures stay truthful. The genuine bug
+was *duplicate* `(date, channel)` Sheet rows from the append-only write; the
+Sheets nodes now use `appendOrUpdate` (see `fix_analytics_sheets_dedupe.py`), so
+a second run on the same day updates the row instead of duplicating it.
 
-`api/services/youtube.py` and `scripts/yt_init.py` now request three scopes:
+### OAuth scopes (re-consent required on change)
+
+`api/services/youtube.py` and `scripts/yt_init.py` each request **four** scopes
+(keep the two lists in sync — they are separate, and a scope added to only one
+is silently not granted):
 
 - `https://www.googleapis.com/auth/youtube.upload`
 - `https://www.googleapis.com/auth/yt-analytics.readonly`
 - `https://www.googleapis.com/auth/youtube.readonly`
+- `https://www.googleapis.com/auth/youtube.force-ssl` — required to post the
+  per-upload seed comment (`post_top_comment`); without it the comment 403s.
 
-**Each channel must be re-consented once** — existing `youtube_token.<slug>.json`
-files lack the analytics scopes and will return 403 on Analytics API calls
-until re-authorised. Re-run:
+**Whenever a scope is added, every channel must be re-consented once** — an
+existing `youtube_token.<slug>.json` only carries the scopes granted when it was
+minted, so it 403s on any new-scope call until re-authorised. Re-run (delete the
+old token first if Google skips the consent dialog):
 
 ```bash
 uv run scripts/yt_init.py --channel wordstrata
@@ -387,8 +402,9 @@ uv run scripts/yt_init.py --channel open-verdicts
 uv run scripts/yt_init.py --channel bright-beasts
 ```
 
-Restart the API service after. Upload capability is retained — only the OAuth
-consent dialog is re-shown to add the two new scopes.
+Then copy the refreshed `secrets/youtube_token.<slug>.json` to the production
+host (`stl`) and restart the API service. Upload capability is retained — only
+the consent dialog is re-shown to add the new scope.
 
 Also ensure both **YouTube Data API v3** and **YouTube Analytics API** are
 enabled in each channel's Google Cloud project.
@@ -446,7 +462,7 @@ debug notifications.
 
 | Workflow | Success signal | Error signal |
 |---|---|---|
-| Per-channel pipeline (×4) | "Notify success" (Telegram) + "Notify success (Slack)" nodes — fire after the YouTube upload step | "Pipeline Error Alert" workflow triggered by n8n Error Workflow setting |
+| Per-channel pipeline (×4) | After the YouTube upload step, "Upload to YouTube" fans out to "Post comment" (POSTs the channel's `seed_comment` to `/{channel}/comment`; `onError=continueRegularOutput` so a comment failure never breaks the run) **and** "Notify success" (Telegram) + "Notify success (Slack)" | "Pipeline Error Alert" workflow triggered by n8n Error Workflow setting |
 | "Daily Analytics Digest" | Digest posted to Telegram + Slack | HTTP-error branch posts failure alert to Telegram + Slack |
 
 ### Shared "Pipeline Error Alert" workflow
@@ -527,9 +543,8 @@ managed separately (n8n encrypted credential store, or a secrets manager).
 The pipeline is feature-complete for daily Shorts on four channels (Wordstrata, The Mythscape, Open Verdicts, Bright Beasts). Open TODOs (in priority order):
 
 1. **Affiliate footer** in YouTube description (per-channel — script LLM template change in each `channels/<slug>/prompts/script.md`)
-2. **Pinned comment auto-post** in `/upload` (needs scope expansion to `youtube.force-ssl`, per-channel OAuth re-consent)
-3. **Per-channel brand assets — partial**: `brand.json` + `gen_brand.py` exist for the three new channels (icon candidates only). Still pending: per-channel outro card / watermark, banner generator (2048×1152), and brand assets for `wordstrata` (currently uses a hand-designed icon).
-4. **Whisper-based forced alignment** to make sentence captions tightly word-sync'd — currently captions are word-count-proportional within each beat, which trails the audio by ~200–400 ms.
-5. **Long-form companion pipeline** — 10–15 min mini-docs sharing the same words queue and audio/image infra, but with different script and video assembly.
+2. **Per-channel brand assets — partial**: `brand.json` + `gen_brand.py` exist for the three new channels (icon candidates only). Still pending: per-channel outro card / watermark, banner generator (2048×1152), and brand assets for `wordstrata` (currently uses a hand-designed icon).
+3. **Whisper-based forced alignment** to make sentence captions tightly word-sync'd — currently captions are word-count-proportional within each beat, which trails the audio by ~200–400 ms.
+4. **Long-form companion pipeline** — 10–15 min mini-docs sharing the same words queue and audio/image infra, but with different script and video assembly.
 
 Don't add: feature flags, retry/backoff infra, k8s manifests, generic abstraction layers. This is a single-machine pipeline; over-architecting is the failure mode.
