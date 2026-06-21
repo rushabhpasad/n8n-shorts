@@ -55,3 +55,47 @@ def test_zero_count_raises():
     words = _wt([(0.0, 0.5)])
     with pytest.raises(AlignmentUnavailable):
         map_words_to_sentences(words, [0, 1])
+
+
+import os
+import wave
+import struct
+import math
+from pathlib import Path
+
+_RUN_MODEL = os.environ.get("RUN_ALIGNMENT_MODEL") == "1"
+
+
+def _write_sine_wav(path: Path, seconds: float, rate: int = 24000):
+    n = int(seconds * rate)
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        frames = b"".join(
+            struct.pack("<h", int(3000 * math.sin(2 * math.pi * 220 * t / rate)))
+            for t in range(n)
+        )
+        w.writeframes(frames)
+
+
+@pytest.mark.skipif(not _RUN_MODEL, reason="set RUN_ALIGNMENT_MODEL=1 to run the real model")
+def test_forced_word_timings_returns_one_span_per_word(tmp_path):
+    from services.alignment import forced_word_timings
+
+    wav = tmp_path / "x.wav"
+    _write_sine_wav(wav, seconds=2.0)
+    words = ["hello", "world", "again"]
+    timings = forced_word_timings(wav, words)
+    assert len(timings) == len(words)
+    assert all(t.end_s >= t.start_s for t in timings)
+    assert all(0.0 <= t.start_s <= 2.01 for t in timings)
+
+
+def test_empty_normalizing_word_raises(tmp_path):
+    from services.alignment import forced_word_timings
+
+    wav = tmp_path / "x.wav"
+    _write_sine_wav(wav, seconds=0.5)
+    with pytest.raises(AlignmentUnavailable):
+        forced_word_timings(wav, ["the", "5", "forms"])  # "5" → "" → abort
