@@ -78,20 +78,20 @@ def _compute_beat_durations(script: Script, total_s: float) -> list[float]:
 _SENT_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
 
 
-def _split_for_video(narration: str) -> list[tuple[str, int]]:
-    """Split narration into sentences. Returns (caption_text, voice_word_count)
-    per sentence. Caption preserves digits/ordinals as written; voice word
-    count uses the fully-expanded spoken form (what Piper actually says) so
-    sentence durations stay synced to the audio."""
+def _split_for_video(narration: str) -> list[tuple[str, list[str]]]:
+    """Split narration into sentences. Returns (caption_text, voice_tokens) per
+    sentence. Caption preserves digits/ordinals as written; voice_tokens are the
+    fully-expanded spoken form (what Piper actually says) — their count gates
+    proportional sentence durations, and the tokens themselves feed forced
+    alignment so the word↔sentence mapping is exact by construction."""
     parts = _SENT_SPLIT_RE.split(narration.strip())
-    out: list[tuple[str, int]] = []
+    out: list[tuple[str, list[str]]] = []
     for p in parts:
         if not p.strip():
             continue
         caption = normalize_for_caption(p.strip())
-        voice_form = normalize_inline(p.strip())
-        voice_wc = max(1, len(voice_form.split()))
-        out.append((caption, voice_wc))
+        tokens = normalize_inline(p.strip()).split() or [p.strip()]
+        out.append((caption, tokens))
     return out
 
 
@@ -105,11 +105,12 @@ def _compute_sentence_timings(
     for i, beat in enumerate(script.beats):
         sentences = _split_for_video(beat.narration)
         if not sentences:
-            sentences = [(normalize_for_caption(beat.on_screen), max(1, len(beat.on_screen.split())))]
-        total_words = sum(wc for _, wc in sentences)
+            sentences = [(normalize_for_caption(beat.on_screen), beat.on_screen.split() or ["x"])]
+        counts = [max(1, len(toks)) for _, toks in sentences]
+        total_words = sum(counts)
         beat_dur = beat_durations[i]
         cursor = beat_start
-        for j, (caption, wc) in enumerate(sentences):
+        for j, ((caption, _toks), wc) in enumerate(zip(sentences, counts)):
             if j == len(sentences) - 1:
                 end = beat_start + beat_dur
             else:
