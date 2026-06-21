@@ -298,3 +298,125 @@ def test_render_digest_lists_errors_block():
     text = analytics.render_digest(report)
     assert "⚠️" in text
     assert "quota exceeded" in text
+
+
+# ─── YouTube count revision: negative deltas are legitimate, not bugs ────────
+
+def test_trend_delta_is_negative_on_youtube_subscriber_revision(monkeypatch, tmp_path):
+    """YouTube removes bot subs during audits → subscribers can drop day-over-day.
+    _trend_from_snapshot must yield a negative delta, NOT clamp to 0."""
+    import db
+    from services import analytics
+
+    monkeypatch.setattr(db.settings, "db_path", tmp_path / "t.db")
+    db.init_schema()
+    # Record a prior snapshot with higher subscriber and view counts.
+    db.record_analytics_snapshot(
+        "wordstrata", snapshot_date="2026-06-13",
+        subscribers=1010, total_views=52000,
+        views_period=4200, watch_minutes_period=3100, shares_period=25,
+    )
+    prior = db.snapshot_before("wordstrata", "2026-06-14")
+
+    from models import ChannelSnapshot, PeriodMetrics
+    # Today YouTube reports FEWER subscribers (bot purge) and FEWER views
+    # (spam-view audit) than the prior snapshot.
+    snapshot = ChannelSnapshot(subscribers=1005, total_views=51800, video_count=32)
+    period = PeriodMetrics(
+        days=1, subscribers_gained=0, subscribers_lost=0, new_subscribers=0,
+        estimated_minutes_watched=0, views=4000, likes=0, comments=0,
+        average_view_duration_s=0,
+    )
+
+    trend = analytics._trend_from_snapshot(prior, snapshot, period, date(2026, 6, 14))
+
+    assert trend is not None
+    # Both deltas are negative — legitimate YouTube count revision, not a bug.
+    assert trend.subscribers == -5, (
+        "subscriber delta must be negative on a downward revision; "
+        "clamping to 0 would mask real corrections"
+    )
+    assert trend.total_views == -200, (
+        "total_views delta must be negative on a downward revision; "
+        "clamping would corrupt the analytics"
+    )
+
+
+def test_trend_delta_negative_period_views_on_revision(monkeypatch, tmp_path):
+    """period_views can also decrease if YouTube re-audits the window."""
+    import db
+    from services import analytics
+
+    monkeypatch.setattr(db.settings, "db_path", tmp_path / "t.db")
+    db.init_schema()
+    db.record_analytics_snapshot(
+        "wordstrata", snapshot_date="2026-06-13",
+        subscribers=1000, total_views=50000,
+        views_period=4500, watch_minutes_period=3000, shares_period=20,
+    )
+    prior = db.snapshot_before("wordstrata", "2026-06-14")
+
+    from models import ChannelSnapshot, PeriodMetrics
+    snapshot = ChannelSnapshot(subscribers=1000, total_views=50000, video_count=30)
+    period = PeriodMetrics(
+        days=1, subscribers_gained=0, subscribers_lost=0, new_subscribers=0,
+        estimated_minutes_watched=0, views=4200, likes=0, comments=0,
+        average_view_duration_s=0,
+    )
+
+    trend = analytics._trend_from_snapshot(prior, snapshot, period, date(2026, 6, 14))
+
+    assert trend is not None
+    assert trend.period_views == -300, (
+        "period_views delta must pass through as negative; "
+        "YouTube revision deltas must never be clamped"
+    )
+
+
+def test_video_cumulative_total_decreases_preserved(monkeypatch, tmp_path):
+    """Per-video *_total fields come straight from the YouTube Data API.
+    If YouTube revises a video's view count down (spam removal), views_total
+    must reflect the lower value — it must NOT be floored to the prior snapshot.
+    """
+    import db
+    from services import analytics
+
+    monkeypatch.setattr(db.settings, "db_path", tmp_path / "t.db")
+    db.init_schema()
+    # Yesterday's snapshot had higher counts.
+    db.record_video_snapshot(
+        "wordstrata", "v1", snapshot_date="2026-06-16",
+        views=845, likes=20, comments=5, watch_minutes=120, shares=8,
+    )
+
+    monkeypatch.setattr(analytics.db, "uploaded_video_ids", lambda ch: ["v1"])
+    # Today YouTube reports lower views (834) and lower likes (18) — a revision.
+    monkeypatch.setattr(
+        analytics, "video_details",
+        lambda ch, ids, *, client=None: {
+            "v1": {
+                "views": 834, "likes": 18, "comments": 5,
+                "title": "Etymology of OK", "published_at": "2026-06-10T09:00:00Z",
+            }
+        },
+    )
+    monkeypatch.setattr(
+        analytics, "video_period_metrics",
+        lambda ch, s, e, ids, *, client=None: {"v1": {"watch_minutes": 120, "shares": 8}},
+    )
+
+    cvs = analytics.channel_video_stats(
+        "wordstrata", today=date(2026, 6, 17),
+        data_client=MagicMock(), analytics_client=MagicMock(),
+    )
+
+    r = cvs.rows[0]
+    # Cumulative totals must reflect the revised (lower) YouTube figure,
+    # not be clamped/floored to the prior snapshot.
+    assert r.views_total == 834, (
+        "views_total must be the current YouTube count even when it decreased; "
+        "flooring to prior would corrupt the analytics"
+    )
+    assert r.likes_total == 18, (
+        "likes_total must reflect the YouTube revision downward"
+    )
