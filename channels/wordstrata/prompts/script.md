@@ -15,16 +15,30 @@ English word.
 Voice: confident, curious, warm — like a smart friend telling you something
 they just learned. No "Did you know?" openers. No "Stay tuned." No filler.
 
-Structure each short as exactly **three beats**:
+Structure each short as exactly **three beats**, built around an OPEN LOOP:
+the surprising true origin is the reward, and it must NOT land until the very
+end. The whole point is to hold the viewer to the last second.
 
-1. **Hook (5–10s)** — open with the word + its modern meaning + a one-sentence
-   tease that something weird is coming. End on a beat that *demands* the next
-   line.
-2. **Origin (18–28s)** — the real story. Concrete: who, when, where, what.
-   Anchor in a specific century, person, or place. Avoid "ancient times" or
-   "long ago".
-3. **Payoff (5–10s)** — the modern echo. Land the connection between the
-   buried origin and how the word is used today. Optionally a sticky takeaway.
+1. **Hook (5–10s)** — the first sentence (first ~2 seconds) names the word and
+   its modern meaning, then teases that its real origin is bizarre, far
+   stranger than anyone expects — WITHOUT stating what that origin is. Promise
+   the surprise; do not deliver it. End on a line that *demands* the next beat
+   (e.g. "...and where it actually comes from is nothing like you'd guess.").
+2. **Origin (18–28s)** — build the story and the tension. Set the scene:
+   the century, the person, the place, the world the word was born into.
+   Lay out the clues and circumstances, but WITHHOLD the actual reveal — keep
+   the viewer leaning in. Include an explicit **mid-beat re-hook**: a "but
+   here's the strange part…" turn (or "and that's where it gets odd…") that
+   re-opens curiosity right when attention might dip. Anchor in a specific
+   century, person, or place. Avoid "ancient times" or "long ago".
+3. **Payoff (5–10s)** — this is the CLIMAX. The surprising true origin lands
+   here, as the final lines, paid off at last. You may end on a single-line
+   button tying it to how we use the word today, but the SURPRISE itself must
+   be the last real beat the viewer hears.
+
+**Do NOT reveal the payoff/answer before the payoff beat** — the whole point is
+to hold the viewer to the end. If the surprising origin lands in the hook or
+the middle, the short has failed.
 
 Total spoken length: **90–130 words**.
 
@@ -150,6 +164,15 @@ hook: Coined in 1688 by a Swiss medical student to describe homesick mercenary s
 Six prompts total — hook 1, origin 3, payoff 2 — each living in its beat's
 `images` array. Every prompt is shown; none are spare.
 
+Note the open-loop framing the narration should follow: the **hook** teases
+that nostalgia's real origin is far stranger than the warm feeling we use it
+for, without saying what it is; the **origin** beat builds the 17th-century
+scene and lands a mid-beat re-hook ("but here's the strange part — doctors
+called it a deadly disease…") while still withholding the punchline; the
+**payoff** delivers the surprise as the climax — that nostalgia was coined as a
+fatal medical diagnosis for homesick soldiers — then closes on a one-line
+button about how we use the word now. The reveal is the LAST real beat.
+
 ```json
 "beats": [
   {
@@ -163,7 +186,7 @@ Six prompts total — hook 1, origin 3, payoff 2 — each living in its beat's
   {
     "label": "origin",
     "narration": "...",
-    "on_screen": "A Medical Diagnosis",
+    "on_screen": "But Here's The Strange Part",
     "images": [
       "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, a column of 17th century mercenary soldiers in dirty wool coats trudging through an alpine pass at sunrise, viewed from behind, their breath visible in cold air, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks",
       "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, a 1688 Swiss medical student in dark robes hunched over a candlelit writing desk in a university library, dipping a quill into ink to write the word nostalgia in a leather journal, anatomical drawings pinned to the wall behind him, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks",
@@ -173,7 +196,7 @@ Six prompts total — hook 1, origin 3, payoff 2 — each living in its beat's
   {
     "label": "payoff",
     "narration": "...",
-    "on_screen": "The Word We Kept",
+    "on_screen": "A Diagnosis For Death",
     "images": [
       "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, an open 17th century leather journal on a wooden desk with two Greek words written in faded ink — nostos and algos — beside an inkwell and quill, warm candle glow, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks",
       "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, a modern young person in a cafe window seat at dusk staring out at a foreign city skyline, holding a half-finished coffee, the same warm candlelit mood as the historical scenes, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks"

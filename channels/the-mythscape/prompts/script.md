@@ -21,19 +21,35 @@ they actually love. No "Did you know?" openers. No "Stay tuned." No filler.
 Treat the myth as a real story with real stakes. Do not editorialize about
 belief — narrate the events as the tradition tells them.
 
-Structure each short as exactly **three beats**:
+Structure each short as exactly **three beats**, built around an OPEN LOOP:
+the myth's twist — its fate, its consequence, how it actually ends — is the
+reward, and it must NOT land until the very end. The whole point is to hold
+the viewer to the last second.
 
-1. **Hook (5–10s)** — name the figure or moment, place them in their
-   tradition, and tease that something dramatic is about to happen. End on
-   a beat that *demands* the next line.
-2. **Origin (18–28s)** — the myth itself. Concrete actions, named objects,
-   real consequences. Who did what, to whom, with what. No "long ago",
-   no "in mythology". Anchor in the tradition's own world (Mount Olympus,
-   Asgard, Duat, Vaikuntha, the Sea of Reeds, the Otherworld, etc.).
-3. **Payoff (5–10s)** — why the myth persisted. What it meant to the
-   people who told it, or the modern echo it left behind (a word, a
-   ritual, a recurring image, a question we still ask). Optionally a
-   sticky takeaway.
+1. **Hook (5–10s)** — the first sentence (first ~2 seconds) names the figure
+   or moment, places them in their tradition, and sets the scene and the
+   stakes: what they want, what they risk, what hangs in the balance. Tease
+   that something decisive is coming — but do NOT spoil the outcome. End on a
+   beat that *demands* the next line (e.g. "...but she had no idea what the
+   gods had already decided.").
+2. **Origin (18–28s)** — the myth unfolds. Concrete actions, named objects,
+   real choices. Who did what, to whom, with what. Build the dramatic tension
+   toward the turning point, but WITHHOLD the resolution — keep the fate, the
+   transformation, the final consequence held back. Include an explicit
+   **mid-beat re-hook**: a "but here's where it turns…" beat (or "and that is
+   when everything changed…") that re-opens curiosity right when attention
+   might dip. No "long ago", no "in mythology". Anchor in the tradition's own
+   world (Mount Olympus, Asgard, Duat, Vaikuntha, the Sea of Reeds, the
+   Otherworld, etc.).
+3. **Payoff (5–10s)** — this is the CLIMAX. The twist, the fate, the
+   consequence lands HERE, as the final lines — the spider, the punishment,
+   the bargain that could not be undone. You may close on a single-line button
+   about why the myth persisted or the modern echo it left, but the TWIST
+   itself must be the last real beat the viewer hears.
+
+**Do NOT reveal the payoff/outcome before the payoff beat** — the whole point
+is to hold the viewer to the end. If the fate or twist lands in the hook or
+the middle, the short has failed.
 
 Total spoken length: **90–130 words**.
 
@@ -175,6 +191,16 @@ hook: Lydian weaver who challenged Athena to a contest; her tapestry mocked the 
 Six prompts total — hook 1, origin 3, payoff 2 — each living in its beat's
 `images` array. Every prompt is shown; none are spare.
 
+Note the open-loop framing the narration should follow: the **hook** sets the
+scene and stakes — a mortal weaver bold enough to challenge a goddess — and
+teases that her pride will cost her, without saying how it ends; the **origin**
+beat builds the contest and lands a mid-beat re-hook ("but here's where it
+turns — her tapestry didn't just rival Athena's, it mocked the gods…") while
+still withholding the fate; the **payoff** delivers the twist as the climax —
+Athena transforms her into the first spider — closing on why the myth endures.
+The twist is the LAST real beat; the hook never spoils that she becomes a
+spider.
+
 ```json
 "beats": [
   {
@@ -188,7 +214,7 @@ Six prompts total — hook 1, origin 3, payoff 2 — each living in its beat's
   {
     "label": "origin",
     "narration": "...",
-    "on_screen": "The Contest",
+    "on_screen": "But Here's Where It Turns",
     "images": [
       "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, the goddess Athena in Bronze Age Greek bronze armor and helmet, standing in the same Lydian workshop, her weaving frame beside Arachne's, weaving a tapestry of the twelve Olympians in calm majesty, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks",
       "painterly illustration, oil-on-canvas texture, muted earth tones, soft natural light, a close view of Arachne's finished tapestry hanging in Bronze Age Lydia, depicting the gods in mocking scenes — Zeus as a swan, Poseidon as a bull — woven in vivid threads, lit by a shaft of sunlight, cinematic composition, 9:16 vertical, atmospheric, no text, no captions, no watermarks",
