@@ -156,16 +156,15 @@ def main() -> None:
             else:
                 print(f"  {CHANNEL_NODE!r}: already correct — skipping")
         elif name == VIDEO_NODE:
-            old_op = node["parameters"].get("operation", "append")
-            patched, changed = _patch_sheets_node(node, VIDEO_MATCH_KEYS)
-            new_nodes.append(patched)
-            if changed:
-                changes.append(
-                    f"  {VIDEO_NODE!r}: operation {old_op!r} → 'appendOrUpdate', "
-                    f"matchingColumns={VIDEO_MATCH_KEYS}"
-                )
-            else:
-                print(f"  {VIDEO_NODE!r}: already correct — skipping")
+            # NEUTRALIZED 2026-06-30. Do NOT switch the per-video node to
+            # appendOrUpdate. It runs inside a batchSize-1 loop appending ~44
+            # rows/run; appendOrUpdate reads the tab once per item, which
+            # collapsed the per-channel tabs to one row/day and blew the Sheets
+            # read-quota (regression 2026-06-22, exec 137). It was reverted to
+            # 'append' live on 2026-06-30 and must NEVER be switched back here.
+            # Left byte-for-byte unchanged.
+            new_nodes.append(node)
+            print(f"  {VIDEO_NODE!r}: left as-is — must stay on 'append'")
         else:
             new_nodes.append(node)
 
@@ -208,7 +207,7 @@ def main() -> None:
     fresh_by_name = {n["name"]: n for n in fresh["nodes"]}
 
     ok = True
-    for node_name, expected_keys in [(CHANNEL_NODE, CHANNEL_MATCH_KEYS), (VIDEO_NODE, VIDEO_MATCH_KEYS)]:
+    for node_name, expected_keys in [(CHANNEL_NODE, CHANNEL_MATCH_KEYS)]:  # VIDEO_NODE intentionally excluded — stays on append
         n = fresh_by_name.get(node_name, {})
         actual_op = n.get("parameters", {}).get("operation")
         actual_keys = sorted(n.get("parameters", {}).get("columns", {}).get("matchingColumns", []))
