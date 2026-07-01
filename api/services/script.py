@@ -76,23 +76,36 @@ async def _call_ollama(system: str, user: str) -> str:
         return body["message"]["content"]
 
 
+# Ollama output is non-deterministic; a bad response on one call is often
+# valid on the next. Retry a few times before surfacing a 500 to the pipeline.
+_MAX_ATTEMPTS = 3
+
+
 async def generate_script(channel: str, word: WordRow) -> Script:
-    """Generate and validate one Script for `channel`. Retries once on failure."""
+    """Generate and validate one Script for `channel`.
+
+    Retries up to `_MAX_ATTEMPTS` times on parse/schema failure. The word and
+    category are passed as validation context so `YouTubeMeta` can back-fill a
+    droppable `tags` array from the request rather than fail the whole run.
+    """
     system = _load_system_prompt(channel)
     user = _user_message(word)
+    context = {"word": word.word, "category": word.category}
 
     last_err: Exception | None = None
-    for attempt in (1, 2):
+    for attempt in range(1, _MAX_ATTEMPTS + 1):
         try:
             raw = await _call_ollama(system, user)
             data = json.loads(raw)
-            return Script.model_validate(data)
+            return Script.model_validate(data, context=context)
         except (json.JSONDecodeError, ValidationError) as e:
             last_err = e
             log.warning(
-                "script gen attempt %d (channel=%s) failed (%s): %s",
-                attempt, channel, type(e).__name__, str(e)[:200],
+                "script gen attempt %d/%d (channel=%s) failed (%s): %s",
+                attempt, _MAX_ATTEMPTS, channel, type(e).__name__, str(e)[:200],
             )
 
     assert last_err is not None
-    raise RuntimeError(f"script generation failed after 2 attempts: {last_err}")
+    raise RuntimeError(
+        f"script generation failed after {_MAX_ATTEMPTS} attempts: {last_err}"
+    )

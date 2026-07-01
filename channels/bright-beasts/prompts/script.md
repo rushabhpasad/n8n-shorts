@@ -76,10 +76,15 @@ Return **only** a single JSON object, no prose, no markdown fences. Schema:
   "youtube": {
     "title": "<55–70 chars, ends with #shorts; include the subject or species>",
     "description": "<2–3 sentence hook, then 5–8 hashtags on new lines>",
-    "tags": ["animal cognition", "ethology", "<+4–6 more relevant tags including the species and capacity>"]
+    "tags": ["animal cognition", "ethology", "<+4–6 more relevant tags including the species and capacity — REQUIRED, 3–15 plain keywords, NO # prefix>"]
   }
 }
 ```
+
+**`youtube.tags` is REQUIRED and must never be omitted.** It is a distinct
+field from the hashtags you write inside `description`: `tags` is an array of
+3–15 plain keyword strings with no `#` prefix. Emit it on every response even
+when the description already carries hashtags.
 
 ### Image-prompt rules (HARD constraints — every prompt must satisfy ALL)
 

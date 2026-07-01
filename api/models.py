@@ -7,9 +7,13 @@ all consume this structure.
 
 from __future__ import annotations
 
+import re
 from typing import Literal  # noqa: F401  (used below in Literal[...])
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, ValidationInfo, model_validator
+
+_HASHTAG_RE = re.compile(r"#(\w+)")
+_WORD_RE = re.compile(r"[A-Za-z0-9]+")
 
 
 BeatLabel = Literal["hook", "origin", "payoff"]
@@ -37,6 +41,50 @@ class YouTubeMeta(BaseModel):
     title: str = Field(min_length=10, max_length=100)
     description: str = Field(min_length=20, max_length=4000)
     tags: list[str] = Field(min_length=3, max_length=15)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _backfill_tags(cls, data: object, info: ValidationInfo) -> object:
+        """Repair a missing/short `tags` array before field validation.
+
+        The local Ollama model sometimes omits `tags` and writes hashtags
+        inline in the description instead (this exact miss 500'd a live run).
+        Existing tags are always normalized (leading `#` stripped, deduped
+        case-insensitively). When fewer than the required 3 remain we back-fill,
+        in order: (1) hashtags already present in the description, then (2) — as
+        a last resort — keywords from the request `word`/`category` passed via
+        validation context. If nothing yields 3 tags the field validator still
+        raises, so a genuinely empty case is never silently accepted.
+        """
+        if not isinstance(data, dict):
+            return data
+
+        raw = data.get("tags")
+        tags: list[str] = []
+        seen: set[str] = set()
+
+        def _add(candidate: str) -> None:
+            cleaned = candidate.lstrip("#").strip()
+            if cleaned and cleaned.lower() not in seen:
+                seen.add(cleaned.lower())
+                tags.append(cleaned)
+
+        if isinstance(raw, list):
+            for tag in raw:
+                _add(str(tag))
+
+        if len(tags) < 3:
+            for tag in _HASHTAG_RE.findall(str(data.get("description") or "")):
+                _add(tag)
+
+        if len(tags) < 3 and info.context:
+            for key in ("word", "category"):
+                value = info.context.get(key)
+                if value:
+                    for token in _WORD_RE.findall(str(value)):
+                        _add(token)
+
+        return {**data, "tags": tags[:15]}
 
 
 class Script(BaseModel):
