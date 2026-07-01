@@ -76,3 +76,75 @@ def test_beat_with_no_images_is_rejected():
 def test_beat_with_more_than_four_images_is_rejected():
     with pytest.raises(ValidationError):
         _script([["a", "b", "c", "d", "e"], ["f"], ["g"]])
+
+
+# --- YouTubeMeta.tags back-fill --------------------------------------------
+# The local Ollama model sometimes drops the required `tags` array and instead
+# writes hashtags inline in the description (this exact miss 500'd a live run).
+# A `mode="before"` validator repairs that so a stray formatting choice never
+# fails the whole pipeline. These tests pin the repair contract.
+
+
+def test_valid_tags_are_left_untouched():
+    meta = YouTubeMeta(
+        title="Dyatlov Pass Mystery Explained",
+        description="Nine hikers died in the Urals in 1959.",
+        tags=["history", "mystery", "coldcase"],
+    )
+    assert meta.tags == ["history", "mystery", "coldcase"]
+
+
+def test_missing_tags_backfilled_from_description_hashtags():
+    meta = YouTubeMeta.model_validate(
+        {
+            "title": "The Disappearance of the Princes",
+            "description": "Two boys vanished from the Tower in 1483.\n"
+            "#history #mystery #medieval",
+        }
+    )
+    assert meta.tags == ["history", "mystery", "medieval"]
+
+
+def test_backfill_dedupes_and_strips_hash_prefixes():
+    meta = YouTubeMeta.model_validate(
+        {
+            "title": "A Ten Char Title",
+            "description": "Summary text here.\n#History #history #mystery #cold #cold",
+            "tags": ["#History"],  # single hashy tag, below the min
+        }
+    )
+    # existing "History" kept (# stripped); description adds mystery + cold;
+    # case-insensitive dedupe drops the repeats.
+    assert meta.tags == ["History", "mystery", "cold"]
+
+
+def test_backfill_from_context_when_no_hashtags():
+    # No hashtags in the description and no tags -> derive from the request word.
+    meta = YouTubeMeta.model_validate(
+        {
+            "title": "The Princes In The Tower",
+            "description": "A plain factual summary with no hashtags at all.",
+        },
+        context={"word": "princes in the tower", "category": "disappearance"},
+    )
+    assert len(meta.tags) >= 3
+    assert "princes" in meta.tags and "disappearance" in meta.tags
+
+
+def test_backfill_caps_at_fifteen():
+    hashtags = " ".join(f"#tag{i}" for i in range(20))
+    meta = YouTubeMeta.model_validate(
+        {"title": "Twenty Hashtags Here", "description": f"Summary.\n{hashtags}"}
+    )
+    assert len(meta.tags) == 15
+
+
+def test_unrepairable_tags_still_raise():
+    # No tags, no hashtags, no context -> genuine validation failure surfaces.
+    with pytest.raises(ValidationError):
+        YouTubeMeta.model_validate(
+            {
+                "title": "No Tags Anywhere",
+                "description": "A summary with absolutely no hashtags to harvest.",
+            }
+        )
