@@ -150,7 +150,9 @@ def test_channel_analytics_rolls_up(monkeypatch, tmp_path):
     assert ca.avg_likes_per_video == 10.0     # (14+6)/2
     assert ca.avg_comments_per_video == 3.0   # (4+2)/2
     assert ca.period.new_subscribers == 200
-    assert ca.new_subs_1d == 200              # 1-day query reuses mocked rows
+    # First run: no prior snapshot → no day-over-day baseline → 0 (was derived
+    # from the Analytics single-day query, which returns 0 in production).
+    assert ca.new_subs_1d == 0
     assert ca.period.days == 30
     # enriched signals
     assert ca.shorts_feed_share == 0.8        # 6400 / 8000
@@ -162,6 +164,63 @@ def test_channel_analytics_rolls_up(monkeypatch, tmp_path):
     assert ca.milestones == []
     # snapshot persisted for the next run's trend baseline
     assert db.snapshot_before("wordstrata", "2026-06-15")["subscribers"] == 1204
+
+
+def _rollup_clients(subscriber_count: str):
+    data = MagicMock()
+    data.channels.return_value.list.return_value.execute.return_value = {
+        "items": [{"statistics": {
+            "subscriberCount": subscriber_count, "viewCount": "55000",
+            "videoCount": "32"}}]
+    }
+    data.videos.return_value.list.return_value.execute.return_value = {"items": []}
+    ya = _analytics_mock(
+        period_row=[210, 10, 3420, 8000, 450, 96, 41, 120, 58.5],
+        traffic_rows=[["SHORTS", 6400], ["YT_SEARCH", 1600]],
+    )
+    return data, ya
+
+
+def test_new_subs_1d_is_snapshot_delta(monkeypatch, tmp_path):
+    """new_subs_1d is the day-over-day Data-API subscriber delta, not the
+    Analytics single-day query (which returns 0 in production due to lag)."""
+    import db
+    from services import analytics
+    monkeypatch.setattr(db.settings, "db_path", tmp_path / "t.db")
+    db.init_schema()
+    monkeypatch.setattr(analytics.db, "uploaded_video_ids", lambda ch: [])
+
+    # Prior snapshot: 1200 subs yesterday. Today the Data API reports 1204.
+    db.record_analytics_snapshot(
+        "wordstrata", snapshot_date="2026-06-13", subscribers=1200,
+        total_views=54000, views_period=7000, watch_minutes_period=3000,
+    )
+    data, ya = _rollup_clients("1204")
+    ca = analytics.channel_analytics(
+        "wordstrata", days=30, today=date(2026, 6, 14),
+        data_client=data, analytics_client=ya,
+    )
+    assert ca.new_subs_1d == 4          # 1204 − 1200, NOT the mocked 200
+
+
+def test_new_subs_1d_clamps_downward_revision(monkeypatch, tmp_path):
+    """A downward revision (spam/bot audit) is not a gain → clamped to 0."""
+    import db
+    from services import analytics
+    monkeypatch.setattr(db.settings, "db_path", tmp_path / "t.db")
+    db.init_schema()
+    monkeypatch.setattr(analytics.db, "uploaded_video_ids", lambda ch: [])
+
+    db.record_analytics_snapshot(
+        "wordstrata", snapshot_date="2026-06-13", subscribers=1210,
+        total_views=54000, views_period=7000, watch_minutes_period=3000,
+    )
+    data, ya = _rollup_clients("1204")   # 1204 < 1210 → negative raw delta
+    ca = analytics.channel_analytics(
+        "wordstrata", days=30, today=date(2026, 6, 14),
+        data_client=data, analytics_client=ya,
+    )
+    assert ca.new_subs_1d == 0
 
 
 def test_channel_analytics_empty_channel(monkeypatch, tmp_path):

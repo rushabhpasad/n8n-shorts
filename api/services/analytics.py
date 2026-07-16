@@ -432,10 +432,17 @@ def channel_analytics(
     avg_likes = round(sum(v.likes for v in videos) / n, 1) if n else 0.0
     avg_comments = round(sum(v.comments for v in videos) / n, 1) if n else 0.0
 
-    # (#4/#7) Trend + milestones come from the prior snapshot — zero extra API
-    # calls. Read the baseline BEFORE recording today's row.
+    # (#4/#7) Trend + milestones + new_subs_1d all come from the prior snapshot —
+    # zero extra API calls. Read the baseline BEFORE recording today's row.
     prior = db.snapshot_before(channel, end)
     trend = _trend_from_snapshot(prior, snapshot, period, today)
+    # new_subs_1d is the day-over-day subscriber gain from the Data API snapshot
+    # delta, NOT the Analytics API single-day query: that query returns no rows
+    # for the most-recent day (reporting lag) and would default to 0 forever.
+    # Clamped at 0 — a downward revision (spam/bot audit) is not a "gain". On the
+    # first run there is no baseline, so it's 0. NOTE: if a prior day's snapshot
+    # is missing (a pipeline gap), this spans >1 day despite the "1d" label.
+    new_subs_1d = max(0, snapshot.subscribers - prior["subscribers"]) if prior else 0
     milestones = compute_milestones(
         prev_subscribers=prior["subscribers"] if prior else None,
         subscribers=snapshot.subscribers,
@@ -467,7 +474,7 @@ def channel_analytics(
     return ChannelAnalytics(
         channel=channel,
         snapshot=snapshot,
-        new_subs_1d=one_day.new_subscribers,
+        new_subs_1d=new_subs_1d,
         period=period,
         videos_uploaded=n,
         avg_likes_per_video=avg_likes,
