@@ -196,7 +196,7 @@ backend in production; it is a last-resort fallback only.
 Modal account.
 
 - **`"modal"` (production)** — chain **Modal → Space → mflux**. Fast paid GPU
-  first (see §2.15), free Space as backstop, local mflux as last resort.
+  first (see §2.17), free Space as backstop, local mflux as last resort.
 - **`"space"` (code default)** — chain **Space → mflux**. Calls the hosted
   Z-Image-Turbo Gradio Space (`zimage_space_url`, default
   `https://mrfakename-z-image-turbo.hf.space`) via
@@ -219,9 +219,25 @@ Relevant config knobs (all in `api/config.py`, env-overridable):
 | `hf_token` | `None` | Set via `HF_TOKEN` in `api/.env`; passed as `token=` to `gradio_client` so ZeroGPU usage bills the account (5 min/day free) |
 | `mflux_cache_limit_bytes` | `1 GiB` | Caps MLX GPU-buffer cache; `mx.clear_cache()` called between mflux renders |
 
-Modal-specific knobs are in §2.15.
+Modal-specific knobs are in §2.17.
 
-### 2.14 Voice backend: local Piper (default) vs. Kokoro container
+### 2.14 Caption alignment backend: proportional (default) vs. forced
+
+`api/config.py` `align_backend` controls how sentence caption timings are computed inside `services/video.py::assemble_video`:
+
+- **`"proportional"` (default)** — splits each beat's audio duration across sentences by voice-form word count. No extra dependencies; works offline. Captions typically trail the voice by ~200–400 ms.
+- **`"forced"`** — uses `api/services/alignment.py::forced_word_timings` (torchaudio MMS_FA wav2vec2-CTC) to force-align the **known** transcript to the rendered WAV, giving true per-word timing. On **any** alignment failure it silently falls back to proportional, so a run always completes.
+
+`caption_lead_s` is a proportional-only tweak — it shifts each caption window earlier by a fixed offset to compensate for the trailing lag. The forced backend makes it unnecessary and **ignores it entirely**.
+
+**Dependencies:** `torch` and `torchaudio` (CPU build) are added to `api/pyproject.toml`. On first use with `align_backend=forced`, torchaudio downloads the MMS_FA model weights (~1.18 GB) to `~/.cache/torch/`. Subsequent runs use the cached model.
+
+| Setting | Default | Notes |
+|---|---|---|
+| `align_backend` | `"proportional"` | `"proportional"` or `"forced"`. stl `.env` sets `ALIGN_BACKEND=forced` (see §2.16 rollout). |
+| `caption_lead_s` | `0.0` | **Proportional backend only.** Shift each caption start earlier by this many seconds if captions visibly trail the voice. Ignored when `align_backend=forced`. |
+
+### 2.15 Voice backend: local Piper (default) vs. Kokoro container
 
 `api/config.py` `voice_backend` controls which path `services/voice.py` `synthesize()` takes (same Space→fallback shape as image gen):
 
@@ -249,7 +265,17 @@ flag. The `.meta.json` sidecar records `backend` (`piper`/`kokoro`) alongside `v
 | `kokoro_speed` | `1.0` | `<1` slower; Kokoro's natural pacing needs no slowdown (Piper still uses `1.1` length_scale) |
 | `kokoro_timeout_s` | `120` | HTTP timeout for the synth call |
 
-### 2.15 Modal image backend (paid GPU, production primary)
+### 2.16 Enabling forced-alignment captions on stl
+
+1. `cd ~/n8n-shorts && git pull && cd api && uv sync`  (installs torch/torchaudio)
+2. Pre-warm the model once: `uv run python -c "import torchaudio; torchaudio.pipelines.MMS_FA.get_model(with_star=False)"`
+3. Set `ALIGN_BACKEND=forced` in the service environment (or `align_backend` in config).
+4. Restart uvicorn (remember the Homebrew PATH requirement for uv/ffmpeg on stl — see §1).
+5. Render one word and verify the log line `captions: forced alignment ok`.
+
+Any alignment failure auto-falls back to proportional timing — safe to leave on.
+
+### 2.17 Modal image backend (paid GPU, production primary)
 
 **LIVE in production since 2026-06-20.** `image_backend="modal"` makes image gen a
 3-tier chain **Modal → Space → mflux** (`api/services/image.py::_image_backend_chain`).
@@ -306,6 +332,7 @@ These are the high-impact files. Read carefully, change with intent.
 | `api/services/youtube.py` | YouTube upload via Data API v3. Sets `categoryId`, `defaultLanguage`, `defaultAudioLanguage`, `containsSyntheticMedia`, `license`, `embeddable`, `publicStatsViewable`, `madeForKids`. Defaults flow from `ChannelConfig`; `UploadRequest` can override per-call. | Upload one video with `privacy: "private"`, then in Studio confirm category, language, and "Altered content" disclosure are set. |
 | `api/channels.py` | Channel registry (file-based). `load(slug)` resolves a `ChannelConfig`; `list_slugs()` discovers all channels at runtime. | Lookup an unknown slug — should 404 with a clear message. |
 | `api/models.py` (`Script`) | Schema the LLM must satisfy. Each `Beat` carries `images: list[str]` (1–4 diffusion prompts). `Script.image_prompts` is a computed property that flattens every beat's `images` in order — the rest of the pipeline reads this property, so generated images and shown images are always 1:1 by construction. A `model_validator` enforces the total image count is 4–7 (`MIN_IMAGES_TOTAL=4`, `MAX_IMAGES_TOTAL=7`). No index pool, no permutation rule; orphan/unused prompts are structurally impossible. | Round-trip a JSON through `Script.model_validate(...)`. |
+| `api/services/alignment.py` | Forced caption alignment. `forced_word_timings(wav_path, words)` runs torchaudio MMS_FA on the rendered WAV and returns one `WordTiming(word, start_s, end_s)` per input word. `map_words_to_sentences(word_timings, counts)` groups them into per-sentence spans. `AlignmentUnavailable` is raised on any failure and caught in `video.py` for the proportional fallback. The MMS_FA model (~1.18 GB) is lazy-loaded on first call. | Env-gate heavy tests: `RUN_ALIGNMENT_MODEL=1 pytest api/test_alignment.py`. For quick iteration, force `align_backend=proportional` to skip the model entirely. |
 | `api/services/video.py` | ffmpeg filter graph. Easy to break the whole video silently — `-shortest` masks bugs. | Always extract frames at `t=1s`, `t=mid-beat`, `t=outro_start+0.5s` after a change. |
 | `api/config.py` | All runtime knobs. Pydantic-settings; env-overridable. Helpers `channel_data_dir()`, `youtube_oauth_path(channel)`, `youtube_token_path(channel)` resolve channel-scoped paths. | Health check (`/health`) shows current values + the channels list. |
 | `n8n/generate.py` | Per-channel workflow generator. Reads every `channels/<slug>/channel.json` and writes `n8n/workflows/<slug>.json`. | Run, then re-import each workflow into n8n. |
@@ -544,7 +571,6 @@ The pipeline is feature-complete for daily Shorts on four channels (Wordstrata, 
 
 1. **Affiliate footer** in YouTube description (per-channel — script LLM template change in each `channels/<slug>/prompts/script.md`)
 2. **Per-channel brand assets — partial**: `brand.json` + `gen_brand.py` exist for the three new channels (icon candidates only). Still pending: per-channel outro card / watermark, banner generator (2048×1152), and brand assets for `wordstrata` (currently uses a hand-designed icon).
-3. **Whisper-based forced alignment** to make sentence captions tightly word-sync'd — currently captions are word-count-proportional within each beat, which trails the audio by ~200–400 ms.
-4. **Long-form companion pipeline** — 10–15 min mini-docs sharing the same words queue and audio/image infra, but with different script and video assembly.
+3. **Long-form companion pipeline** — 10–15 min mini-docs sharing the same words queue and audio/image infra, but with different script and video assembly.
 
 Don't add: feature flags, retry/backoff infra, k8s manifests, generic abstraction layers. This is a single-machine pipeline; over-architecting is the failure mode.
